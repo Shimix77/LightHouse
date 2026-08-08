@@ -1,17 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useShowStore } from "../store/showStore";
 import type { SceneSummary } from "../types/show";
+import { EffectsPanel } from "./EffectsPanel";
+import { LivePanel } from "./LivePanel";
 
-type SceneTab = "scenes" | "cue" | "effects";
+type SceneTab = "live" | "scenes" | "cue" | "effects";
 
 export function ScenePanel() {
   const [tab, setTab] = useState<SceneTab>("scenes");
   const [dialogScene, setDialogScene] = useState<SceneSummary | "new" | null>(null);
   const scenes = useShowStore((state) => state.scenes);
   const cueLists = useShowStore((state) => state.cueLists);
-  const effects = useShowStore((state) => state.effects);
   const selectedFixtureIds = useShowStore((state) => state.selectedFixtureIds);
   const mode = useShowStore((state) => state.mode);
   const activateScene = useShowStore((state) => state.activateScene);
@@ -20,6 +21,7 @@ export function ScenePanel() {
   const deleteScene = useShowStore((state) => state.deleteScene);
   const addCue = useShowStore((state) => state.addCue);
   const deleteCue = useShowStore((state) => state.deleteCue);
+  const addLiveControl = useShowStore((state) => state.addLiveControl);
   const blind = useShowStore((state) => state.blind);
   const freeze = useShowStore((state) => state.freeze);
   const toggleBlind = useShowStore((state) => state.toggleBlind);
@@ -33,10 +35,15 @@ export function ScenePanel() {
   const cueCursor = useShowStore((state) => state.cueCursor);
   const cueList = cueLists[0];
 
+  useEffect(() => {
+    setTab(mode === "live" ? "live" : "scenes");
+  }, [mode]);
+
   return (
     <section className="scene-panel" aria-label="Scenes and cue list">
       <div className="scene-panel-header">
         <div className="scene-tabs">
+          <button className={tab === "live" ? "is-active" : ""} onClick={() => setTab("live")}>LIVE PANEL</button>
           <button className={tab === "scenes" ? "is-active" : ""} onClick={() => setTab("scenes")}>SCENES</button>
           <button className={tab === "cue" ? "is-active" : ""} onClick={() => setTab("cue")}>CUE LIST</button>
           <button className={tab === "effects" ? "is-active" : ""} onClick={() => setTab("effects")}>EFFECTS</button>
@@ -66,6 +73,7 @@ export function ScenePanel() {
                 <div className="scene-card-actions">
                   <button disabled={mode === "live"} title="Edit scene" onClick={() => setDialogScene(scene)}>✎</button>
                   <button disabled={mode === "live"} title="Add to cue list" onClick={() => addCue(scene.id)}>＋ CUE</button>
+                  <button disabled={mode === "live"} title="Add to Live panel" onClick={() => addLiveControl(scene.name, scene.id, null)}>＋ LIVE</button>
                 </div>
               </div>
             ))}
@@ -86,12 +94,8 @@ export function ScenePanel() {
           </div>
         )}
 
-        {tab === "effects" && (
-          <div className="effect-library-strip">
-            {effects.map((effect) => <div key={effect.id}><span>∿</span><strong>{effect.name}</strong><small>{effect.template.replaceAll("-", " ")} · {effect.beatSync ? "Beat sync" : effect.targetParameter}</small></div>)}
-            {effects.length === 0 && <div className="empty-strip">No effects configured.</div>}
-          </div>
-        )}
+        {tab === "live" && <LivePanel />}
+        {tab === "effects" && <EffectsPanel />}
       </div>
 
       {dialogScene && (

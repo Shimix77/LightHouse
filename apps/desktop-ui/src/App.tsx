@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { Inspector } from "./components/Inspector";
+import { LiveDisplay } from "./components/LiveDisplay";
 import { ObjectPanel } from "./components/ObjectPanel";
 import { ScenePanel } from "./components/ScenePanel";
 import { StageEditor } from "./components/StageEditor";
@@ -15,6 +16,7 @@ import {
 import { useShowStore } from "./store/showStore";
 
 export function App() {
+  const liveDisplay = new URLSearchParams(window.location.search).get("display") === "live";
   const undo = useShowStore((state) => state.undo);
   const redo = useShowStore((state) => state.redo);
   const duplicate = useShowStore((state) => state.duplicateSelection);
@@ -75,6 +77,8 @@ export function App() {
       window.clearInterval(timer);
     };
   }, [applyEngineView, hydrateEngine, setEngineError]);
+
+  if (liveDisplay) return <LiveDisplay />;
 
   return (
     <main className="app-shell">

@@ -9,7 +9,8 @@ use lighthouse_domain::{
     CueListId, EffectId, FixtureId, NormalizedValue, ParameterId, ProjectId, SceneId,
 };
 use lighthouse_effects::{
-    BeatClock, BeatSource, EffectBlend, EffectDefinition, FixtureEffectContext, TapTempo, sample,
+    BeatClock, BeatSource, EffectBlend, EffectDefinition, FixtureEffectContext, TapTempo,
+    fan_value, sample,
 };
 use serde::{Deserialize, Serialize};
 
@@ -384,6 +385,82 @@ impl<C: MonotonicClock> ShowCore<C> {
                     ));
                 }
                 Ok(vec![DomainEvent::EffectStopped { effect_id }])
+            }
+            Command::ApplyFan {
+                fixture_ids,
+                parameter_id,
+                base,
+                spread,
+            } => {
+                if fixture_ids.is_empty() || !spread.is_finite() || !(-2.0..=2.0).contains(&spread)
+                {
+                    return Err(rejection(
+                        RejectionCode::InvalidCommand,
+                        "fan requires fixtures and a finite spread between -2 and 2",
+                    ));
+                }
+                let blind = self.blind;
+                let target = if blind {
+                    &mut self.blind_programmer
+                } else {
+                    &mut self.programmer
+                };
+                let count = fixture_ids.len();
+                for (index, fixture_id) in fixture_ids.iter().copied().enumerate() {
+                    set_value(
+                        target,
+                        fixture_id,
+                        parameter_id.clone(),
+                        fan_value(base, spread, index, count),
+                    );
+                }
+                Ok(vec![DomainEvent::FanApplied {
+                    fixture_count: count,
+                    blind,
+                }])
+            }
+            Command::ApplyColorFan {
+                fixture_ids,
+                start_rgb,
+                end_rgb,
+            } => {
+                if fixture_ids.is_empty() {
+                    return Err(rejection(
+                        RejectionCode::InvalidCommand,
+                        "color fan requires at least one fixture",
+                    ));
+                }
+                let blind = self.blind;
+                let target = if blind {
+                    &mut self.blind_programmer
+                } else {
+                    &mut self.programmer
+                };
+                let count = fixture_ids.len();
+                for (index, fixture_id) in fixture_ids.iter().copied().enumerate() {
+                    let position = if count <= 1 {
+                        0.0
+                    } else {
+                        index as f64 / (count - 1) as f64
+                    };
+                    for (channel, parameter_id) in ["color.red", "color.green", "color.blue"]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let start = start_rgb[channel].get();
+                        let end = end_rgb[channel].get();
+                        set_value(
+                            target,
+                            fixture_id,
+                            ParameterId::new(parameter_id),
+                            NormalizedValue::clamped(start + (end - start) * position),
+                        );
+                    }
+                }
+                Ok(vec![DomainEvent::FanApplied {
+                    fixture_count: count,
+                    blind,
+                }])
             }
             Command::SetGrandMaster { value } => {
                 self.grand_master = value;
@@ -1009,6 +1086,67 @@ mod tests {
         assert_eq!(intensity(&core), 0.0);
         accepted(&mut core, 3, Command::CommitBlind);
         assert_eq!(intensity(&core), 1.0);
+    }
+
+    #[test]
+    fn fanning_writes_ordered_logical_parameters_atomically() {
+        let clock = ManualClock::default();
+        let mut core = ShowCore::new(PROJECT_ID, clock);
+        let second = FixtureId::new(11);
+        let third = FixtureId::new(12);
+        accepted(
+            &mut core,
+            1,
+            Command::ApplyFan {
+                fixture_ids: vec![FIXTURE_ID, second, third],
+                parameter_id: ParameterId::new("position.pan"),
+                base: NormalizedValue::clamped(0.5),
+                spread: 0.6,
+            },
+        );
+        let values = core.resolved_values();
+        assert_eq!(
+            values[&FIXTURE_ID][&ParameterId::new("position.pan")].get(),
+            0.2
+        );
+        assert_eq!(
+            values[&second][&ParameterId::new("position.pan")].get(),
+            0.5
+        );
+        assert_eq!(values[&third][&ParameterId::new("position.pan")].get(), 0.8);
+    }
+
+    #[test]
+    fn color_fanning_interpolates_logical_rgb_values() {
+        let clock = ManualClock::default();
+        let mut core = ShowCore::new(PROJECT_ID, clock);
+        let second = FixtureId::new(11);
+        accepted(
+            &mut core,
+            1,
+            Command::ApplyColorFan {
+                fixture_ids: vec![FIXTURE_ID, second],
+                start_rgb: [
+                    NormalizedValue::FULL,
+                    NormalizedValue::ZERO,
+                    NormalizedValue::ZERO,
+                ],
+                end_rgb: [
+                    NormalizedValue::ZERO,
+                    NormalizedValue::ZERO,
+                    NormalizedValue::FULL,
+                ],
+            },
+        );
+        let values = core.resolved_values();
+        assert_eq!(
+            values[&FIXTURE_ID][&ParameterId::new("color.red")],
+            NormalizedValue::FULL
+        );
+        assert_eq!(
+            values[&second][&ParameterId::new("color.blue")],
+            NormalizedValue::FULL
+        );
     }
 
     #[test]

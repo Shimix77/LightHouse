@@ -1,4 +1,5 @@
 import { useShowStore } from "../store/showStore";
+import { openLiveDisplay } from "../services/engineClient";
 
 export function TopBar() {
   const projectName = useShowStore((state) => state.projectName);
@@ -56,6 +57,8 @@ export function TopBar() {
         <span className={`status-dot ${engineConnected && telemetry.sendErrors === 0 ? "is-good" : "is-error"}`} />
         <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · 44 Hz</small></div>
       </div>
+
+      <button className="live-window-button" title="Open Live panel on another display" onClick={() => { void openLiveDisplay(); }}>▣ LIVE WINDOW</button>
 
       <label className="master-control">
         <span>GRAND MASTER</span>

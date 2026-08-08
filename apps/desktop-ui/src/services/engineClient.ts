@@ -30,6 +30,14 @@ export async function sendProjectCommand(command: ProjectCommand): Promise<Engin
   return invoke<EngineBootstrap>("project_command", { command });
 }
 
+export async function openLiveDisplay(): Promise<void> {
+  if (hasNativeEngine()) {
+    await invoke("open_live_window");
+  } else {
+    window.open("?display=live", "lighthouse-live-display", "width=1280,height=760");
+  }
+}
+
 export function dispatchEngineCommand(
   command: EngineCommand,
   onView: ViewHandler,

@@ -2,6 +2,10 @@ export type OperationMode = "edit" | "live";
 
 export type FixtureKind = "dimmer" | "par" | "moving-head" | "strobe";
 export type StageObjectKind = "truss" | "speaker" | "stage" | "person" | "shape";
+export type EffectTemplate = "pulse" | "sineWave" | "chase" | "fill" | "randomFlicker" | "sparkle" | "twoColorChase" | "rainbow" | "colorWave" | "randomColor" | "panSweep" | "tiltBounce" | "circle" | "figureEight" | "fireCandleFlicker";
+export type EffectDirection = "forward" | "reverse";
+export type EffectBlend = "replace" | "add";
+export type EffectOrder = "fixtureOrder" | "layoutX" | "layoutY";
 
 export interface LayoutFixture {
   id: string;
@@ -98,9 +102,27 @@ export interface CueListSummary {
 export interface EffectSummary {
   id: string;
   name: string;
-  template: string;
+  template: EffectTemplate;
   targetParameter: string;
+  amplitude: number;
+  offset: number;
+  speedHz: number;
+  beatMultiplier: number;
   beatSync: boolean;
+  spatialPhase: number;
+  direction: EffectDirection;
+  blend: EffectBlend;
+  order: EffectOrder;
+  active: boolean;
+}
+
+export interface LiveControlSummary {
+  id: string;
+  label: string;
+  sceneId: string | null;
+  effectId: string | null;
+  page: number;
+  position: number;
 }
 
 export interface EngineTelemetry {
@@ -146,6 +168,7 @@ export interface ProjectView {
   scenes: SceneSummary[];
   cueLists: CueListSummary[];
   effects: EffectSummary[];
+  liveControls: LiveControlSummary[];
   fixtureDefinitions: FixtureDefinitionSummary[];
   background: StageBackground | null;
   universeCount: number;
@@ -173,7 +196,11 @@ export type EngineCommand =
   | { type: "setFreeze"; data: { enabled: boolean } }
   | { type: "setOperationMode"; data: { mode: OperationMode } }
   | { type: "setTempo"; data: { bpm: number } }
-  | { type: "tapTempo" };
+  | { type: "tapTempo" }
+  | { type: "startEffect"; data: { effectId: string; fixtureIds: string[] } }
+  | { type: "stopEffect"; data: { effectId: string } }
+  | { type: "applyFan"; data: { fixtureIds: string[]; parameterId: string; base: number; spread: number } }
+  | { type: "applyColorFan"; data: { fixtureIds: string[]; startRgb: [number, number, number]; endRgb: [number, number, number] } };
 
 export interface LayoutUpdate {
   fixtureId: string;
@@ -210,4 +237,8 @@ export type ProjectCommand =
   | { type: "updateScene"; data: { sceneId: string; name: string; fadeMs: number } }
   | { type: "deleteScene"; data: { sceneId: string } }
   | { type: "addCue"; data: { cueListId: string | null; sceneId: string } }
-  | { type: "deleteCue"; data: { cueListId: string; index: number } };
+  | { type: "deleteCue"; data: { cueListId: string; index: number } }
+  | { type: "putEffect"; data: { effectId: string | null; name: string; template: EffectTemplate; targetParameter: string; amplitude: number; offset: number; speedHz: number; beatMultiplier: number; beatSync: boolean; spatialPhase: number; direction: EffectDirection; blend: EffectBlend; order: EffectOrder } }
+  | { type: "deleteEffect"; data: { effectId: string } }
+  | { type: "putLiveControl"; data: { controlId: string | null; label: string; sceneId: string | null; effectId: string | null; page: number; position: number } }
+  | { type: "deleteLiveControl"; data: { controlId: string } };
