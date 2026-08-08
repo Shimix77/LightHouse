@@ -21,7 +21,7 @@ use lighthouse_domain::{
     ProjectId, SceneId, UniverseId,
 };
 use lighthouse_effects::{
-    EffectBlend, EffectDefinition, EffectDirection, EffectOrder, EffectTemplate,
+    BeatSource, EffectBlend, EffectDefinition, EffectDirection, EffectOrder, EffectTemplate,
 };
 use lighthouse_fixture_library::FixtureLibrary;
 use lighthouse_ipc::{
@@ -222,6 +222,10 @@ pub enum UiEngineCommand {
     SetTempo {
         bpm: f64,
     },
+    SetAudioTempo {
+        bpm: f64,
+        confidence: f64,
+    },
     TapTempo,
     StartEffect {
         effect_id: String,
@@ -383,6 +387,7 @@ impl UiEngineCommand {
     fn priority_lane(&self) -> PriorityLane {
         match self {
             Self::SetBlackout { .. } | Self::SetGrandMaster { .. } => PriorityLane::Safety,
+            Self::SetAudioTempo { .. } => PriorityLane::Background,
             Self::ActivateScene { .. }
             | Self::ReleaseScene { .. }
             | Self::GoNextCue { .. }
@@ -446,6 +451,11 @@ impl UiEngineCommand {
             Self::SetFreeze { enabled } => Command::SetFreeze { enabled },
             Self::SetOperationMode { mode } => Command::SetOperationMode { mode },
             Self::SetTempo { bpm } => Command::SetTempo { bpm },
+            Self::SetAudioTempo { bpm, confidence } => Command::SetAudioTempo {
+                bpm,
+                confidence: NormalizedValue::new(confidence)
+                    .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
+            },
             Self::TapTempo => Command::TapTempo,
             Self::StartEffect {
                 effect_id,
@@ -498,6 +508,7 @@ impl UiEngineCommand {
                 | Self::SetFreeze { .. }
                 | Self::SetOperationMode { .. }
                 | Self::SetTempo { .. }
+                | Self::SetAudioTempo { .. }
                 | Self::ApplyFan { .. }
                 | Self::ApplyColorFan { .. }
         )
@@ -677,6 +688,8 @@ pub struct UiEngineView {
     blind: bool,
     freeze: bool,
     bpm: f64,
+    beat_source: BeatSource,
+    beat_confidence: f64,
     telemetry: EngineTelemetry,
     connected: bool,
 }
@@ -958,6 +971,8 @@ fn engine_view(snapshot: ShowSnapshot, telemetry: EngineTelemetry) -> UiEngineVi
         blind: snapshot.blind,
         freeze: snapshot.freeze,
         bpm: snapshot.bpm,
+        beat_source: snapshot.beat_source,
+        beat_confidence: snapshot.beat_confidence.get(),
         telemetry,
         connected: true,
     }
@@ -2688,6 +2703,8 @@ mod tests {
             blind: false,
             freeze: false,
             bpm: 120.0,
+            beat_source: BeatSource::Fixed,
+            beat_confidence: NormalizedValue::FULL,
         };
         let restart = apply_project_command(
             &mut bundle,

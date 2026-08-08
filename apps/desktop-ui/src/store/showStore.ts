@@ -6,6 +6,7 @@ import {
   sendProjectCommand,
 } from "../services/engineClient";
 import type {
+  BeatSource,
   CueListSummary,
   EffectSummary,
   EngineBootstrap,
@@ -39,6 +40,8 @@ interface ShowUiState {
   blind: boolean;
   freeze: boolean;
   bpm: number;
+  beatSource: BeatSource;
+  beatConfidence: number;
   cueLists: CueListSummary[];
   effects: EffectSummary[];
   liveControls: LiveControlSummary[];
@@ -71,6 +74,7 @@ interface ShowUiState {
   clearProgrammer: () => void;
   toggleFreeze: () => void;
   setBpm: (value: number) => void;
+  setAudioTempo: (bpm: number, confidence: number) => void;
   tapTempo: () => void;
   activateScene: (id: string) => void;
   goNextCue: () => void;
@@ -211,6 +215,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     blind: false,
     freeze: false,
     bpm: 120,
+    beatSource: "fixed",
+    beatConfidence: 1,
     engineConnected: false,
     engineError: undefined,
     engineRevision: 0,
@@ -324,10 +330,22 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     },
     setBpm: (value) => {
       const bpm = Math.max(20, Math.min(300, value));
-      set({ bpm });
+      set({ bpm, beatSource: "fixed", beatConfidence: 1 });
       dispatch({ type: "setTempo", data: { bpm } }, "tempo");
     },
-    tapTempo: () => dispatch({ type: "tapTempo" }),
+    setAudioTempo: (value, confidence) => {
+      const bpm = Math.max(20, Math.min(300, value));
+      const beatConfidence = clamp(confidence);
+      set({ bpm, beatSource: "audio", beatConfidence });
+      dispatch(
+        { type: "setAudioTempo", data: { bpm, confidence: beatConfidence } },
+        "audio-tempo",
+      );
+    },
+    tapTempo: () => {
+      set({ beatSource: "tap", beatConfidence: 1 });
+      dispatch({ type: "tapTempo" });
+    },
     activateScene: (id) => {
       const active = get().scenes.find((scene) => scene.id === id)?.active ?? false;
       set((state) => ({
@@ -671,6 +689,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
           blind: view.blind,
           freeze: view.freeze,
           bpm: view.bpm,
+          beatSource: view.beatSource,
+          beatConfidence: view.beatConfidence,
           engineConnected: view.connected,
           engineError: undefined,
           engineRevision: view.revision,

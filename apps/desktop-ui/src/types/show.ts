@@ -6,6 +6,7 @@ export type EffectTemplate = "pulse" | "sineWave" | "chase" | "fill" | "randomFl
 export type EffectDirection = "forward" | "reverse";
 export type EffectBlend = "replace" | "add";
 export type EffectOrder = "fixtureOrder" | "layoutX" | "layoutY";
+export type BeatSource = "fixed" | "tap" | "audio";
 
 export interface LayoutFixture {
   id: string;
@@ -156,6 +157,8 @@ export interface EngineView {
   blind: boolean;
   freeze: boolean;
   bpm: number;
+  beatSource: BeatSource;
+  beatConfidence: number;
   telemetry: EngineTelemetry;
   connected: boolean;
 }
@@ -196,6 +199,7 @@ export type EngineCommand =
   | { type: "setFreeze"; data: { enabled: boolean } }
   | { type: "setOperationMode"; data: { mode: OperationMode } }
   | { type: "setTempo"; data: { bpm: number } }
+  | { type: "setAudioTempo"; data: { bpm: number; confidence: number } }
   | { type: "tapTempo" }
   | { type: "startEffect"; data: { effectId: string; fixtureIds: string[] } }
   | { type: "stopEffect"; data: { effectId: string } }

@@ -324,7 +324,7 @@ input:focus-visible {
 
 .tempo-control {
   display: grid;
-  grid-template-columns: auto auto auto auto;
+  grid-template-columns: auto auto auto auto auto;
   align-items: center;
   gap: 7px;
   padding: 0 10px;
@@ -379,6 +379,73 @@ input:focus-visible {
   border-radius: 3px;
   background: var(--cyan);
   box-shadow: 0 0 9px rgba(97, 215, 255, 0.5);
+}
+
+.beat-pulse.is-audio {
+  animation: audio-beat-glow 1s ease-in-out infinite;
+}
+
+.microphone-beat {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 58px;
+  height: 26px;
+  padding: 0 7px 4px;
+  overflow: hidden;
+  border: 1px solid #3a4758;
+  border-radius: 4px;
+  background: #151d27;
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.microphone-beat > span {
+  color: #596779;
+  font-size: 7px;
+}
+
+.microphone-beat > i {
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  left: 5px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: #27313f;
+}
+
+.microphone-beat > i > b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  background: var(--cyan);
+  transition: transform 100ms linear;
+}
+
+.microphone-beat.is-listening {
+  border-color: #397a88;
+  color: #a9ecff;
+  background: #152830;
+}
+
+.microphone-beat.is-listening > span {
+  color: var(--cyan);
+}
+
+.microphone-beat.is-pulse {
+  box-shadow: 0 0 12px rgba(97, 215, 255, 0.38);
+}
+
+@keyframes audio-beat-glow {
+  50% { opacity: 0.42; }
 }
 
 .output-status strong,
