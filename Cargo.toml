@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/desktop",
     "apps/show-engine",
     "apps/virtual-dmx-node",
     "crates/commands",

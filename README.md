@@ -2,7 +2,7 @@
 
 LightHouse is a macOS-first professional desktop application for designing and running DMX lighting shows from a visual 2D stage layout.
 
-The project is currently in MVP 0. The first implementation slice is a headless Rust engine designed for later Windows support, with the user interface fully separated from real-time DMX output.
+The project is under active MVP development. It combines a headless Rust show engine with a Tauri 2 desktop shell and a React/PixiJS professional dark interface. The engine remains fully separated from the UI so DMX output can continue through a temporary UI freeze or restart.
 
 ## Documentation
 
@@ -12,9 +12,9 @@ The project is currently in MVP 0. The first implementation slice is a headless 
 - [Project format and recovery baseline](docs/behavior-specs/PROJECT_FORMAT.md)
 - [Engine sidecar and IPC baseline](docs/behavior-specs/ENGINE_SIDECAR.md)
 
-## MVP 0 engine workspace
+## Workspace
 
-The Rust workspace deliberately has no UI and no physical-DMX dependency. Its modules cover:
+The Rust engine has no UI or physical-DMX dependency. Its modules cover:
 
 - stable domain identifiers and normalized logical values;
 - canonical fixture modes with 8/16-bit DMX bindings;
@@ -26,12 +26,34 @@ The Rust workspace deliberately has no UI and no physical-DMX dependency. Its mo
 - partial-scene LTP layering, deterministic fades, cue GO/BACK/PAUSE and Blind/Freeze;
 - 15 deterministic effect templates, spatial fixture ordering, fanning and Tap Tempo.
 
+The desktop workspace adds:
+
+- a Tauri 2 macOS window prepared for later Windows builds;
+- a React 19 professional dark UI with EDIT/LIVE safety separation;
+- a PixiJS 8 WebGL stage editor with zoom, pan, rectangle and multi-selection;
+- fixture, inspector, scene/cue, grand-master, Blackout, Blind and Freeze controls;
+- PNG/JPG floor-plan backgrounds and keyboard editing shortcuts.
+
 Run the full verification suite with:
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+```
+
+Install the desktop dependencies and run the UI or native shell with:
+
+```sh
+pnpm install
+pnpm ui:dev
+pnpm desktop:dev
+```
+
+Build the native executable without creating an installer with:
+
+```sh
+pnpm desktop:build
 ```
 
 For a local end-to-end check, start `lighthouse-virtual-dmx-node`, then run
