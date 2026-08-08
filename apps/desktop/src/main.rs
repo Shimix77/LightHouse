@@ -10,7 +10,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -28,8 +28,18 @@ fn main() {
             save_project_as,
             open_live_window
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run LightHouse desktop application");
+        .build(tauri::generate_context!())
+        .expect("failed to build LightHouse desktop application");
+    app.run(|app_handle, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) && let Some(state) = app_handle.try_state::<Mutex<DesktopBackend>>()
+            && let Ok(mut backend) = state.lock()
+        {
+            backend.shutdown();
+        }
+    });
 }
 
 #[tauri::command]

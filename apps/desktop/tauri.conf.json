@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "cargo build -p lighthouse-show-engine-app && pnpm --dir apps/desktop-ui dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "cargo build -p lighthouse-show-engine-app --release && pnpm --dir apps/desktop-ui build",
+    "beforeBuildCommand": "bash scripts/prepare-sidecar.sh release && pnpm --dir apps/desktop-ui build",
     "frontendDist": "../desktop-ui/dist"
   },
   "app": {
@@ -28,10 +28,14 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["app", "dmg"],
+    "externalBin": ["binaries/lighthouse-show-engine-app"],
+    "icon": ["icons/icon.png"],
     "macOS": {
       "entitlements": "LightHouse.entitlements",
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "signingIdentity": "-"
     }
   }
 }
