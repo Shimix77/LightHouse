@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { MicrophoneBeatDetector } from "../services/audioBeatDetector";
 import { useShowStore } from "../store/showStore";
 import { openLiveDisplay } from "../services/engineClient";
+import { OutputSettingsDialog } from "./OutputSettingsDialog";
 
 export function TopBar() {
   const projectName = useShowStore((state) => state.projectName);
@@ -29,6 +30,7 @@ export function TopBar() {
   const saveProjectAs = useShowStore((state) => state.saveProjectAs);
   const dismissRecoveryNotice = useShowStore((state) => state.dismissRecoveryNotice);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [outputSettingsOpen, setOutputSettingsOpen] = useState(false);
   const projectMenu = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -108,10 +110,10 @@ export function TopBar() {
         <MicrophoneBeatControl bpm={bpm} />
       </div>
 
-      <div className="output-status">
+      <button className="output-status" type="button" title="Configure Art-Net output" onClick={() => setOutputSettingsOpen(true)}>
         <span className={`status-dot ${engineConnected && telemetry.sendErrors === 0 ? "is-good" : "is-error"}`} />
         <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · 44 Hz</small></div>
-      </div>
+      </button>
 
       <button className="live-window-button" title="Open Live panel on another display" onClick={() => { void openLiveDisplay(); }}>▣ LIVE WINDOW</button>
 
@@ -136,6 +138,7 @@ export function TopBar() {
         <span aria-hidden="true">●</span>
         BLACKOUT
       </button>
+      {outputSettingsOpen && <OutputSettingsDialog onClose={() => setOutputSettingsOpen(false)} />}
     </header>
   );
 }

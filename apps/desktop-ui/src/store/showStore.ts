@@ -30,6 +30,7 @@ import type {
   StageBackground,
   StageObject,
   StageObjectKind,
+  UniverseSummary,
 } from "../types/show";
 
 interface ShowUiState {
@@ -53,6 +54,7 @@ interface ShowUiState {
   liveControls: LiveControlSummary[];
   livePage: number;
   fixtureDefinitions: FixtureDefinitionSummary[];
+  universes: UniverseSummary[];
   universeCount: number;
   projectPath: string;
   recentProjects: RecentProject[];
@@ -106,6 +108,7 @@ interface ShowUiState {
   saveProjectAs: () => Promise<void>;
   dismissRecoveryNotice: () => void;
   addUniverse: () => void;
+  putUniverseOutput: (universe: UniverseSummary) => Promise<boolean>;
   addStageObject: (kind: StageObjectKind, name: string) => void;
   putGroup: (groupId: string | null, name: string, fixtureIds: string[]) => void;
   deleteGroup: (groupId: string) => void;
@@ -238,6 +241,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     liveControls: [],
     livePage: 1,
     fixtureDefinitions: initialFixtureDefinitions,
+    universes: [{ id: 1, name: "Universe 1", enabled: true, portAddress: 0, destination: "127.0.0.1:6454", interface: null, broadcast: false }],
     universeCount: 1,
     projectPath: "",
     recentProjects: [],
@@ -593,6 +597,18 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     saveProjectAs: () => runProjectOperation(saveProjectAs),
     dismissRecoveryNotice: () => set({ recoveryNotice: undefined }),
     addUniverse: () => { void mutateProject({ type: "addUniverse" }); },
+    putUniverseOutput: (universe) => mutateProject({
+      type: "putUniverseOutput",
+      data: {
+        universe: universe.id,
+        name: universe.name,
+        enabled: universe.enabled,
+        portAddress: universe.portAddress,
+        destination: universe.destination,
+        interface: universe.interface,
+        broadcast: universe.broadcast,
+      },
+    }),
     addStageObject: (kind, name) => {
       void mutateProject({ type: "addStageObject", data: { kind, name, x: 0, y: 0 } });
     },
@@ -727,6 +743,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         liveControls: bootstrap.project.liveControls,
         fixtureDefinitions: bootstrap.project.fixtureDefinitions,
         background: bootstrap.project.background ?? undefined,
+        universes: bootstrap.project.universes,
         universeCount: bootstrap.project.universeCount,
         undoStack: [],
         redoStack: [],
