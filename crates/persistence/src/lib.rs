@@ -368,6 +368,12 @@ pub struct LoadedProject {
     pub migration: Option<MigrationReport>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryReport {
+    pub backup_path: PathBuf,
+    pub corrupt_path: PathBuf,
+}
+
 pub struct ProjectStore;
 
 impl ProjectStore {
@@ -395,6 +401,39 @@ impl ProjectStore {
             CURRENT_SCHEMA_VERSION => load_v1(&mut archive),
             0 => load_v0(&mut archive),
             version => Err(PersistenceError::UnsupportedSchema(version)),
+        }
+    }
+
+    pub fn load_recovering(
+        path: &Path,
+    ) -> Result<(LoadedProject, Option<RecoveryReport>), PersistenceError> {
+        match Self::load(path) {
+            Ok(project) => Ok((project, None)),
+            Err(primary_error) => {
+                let backup_path = backup_path(path);
+                if !backup_path.exists() {
+                    return Err(primary_error);
+                }
+                let project = Self::load(&backup_path)?;
+                let recovery_temp = temporary_sibling(path)?;
+                fs::copy(&backup_path, &recovery_temp)?;
+                let corrupt_path = corrupt_sibling(path)?;
+                if path.exists() {
+                    fs::rename(path, &corrupt_path)?;
+                }
+                if let Err(error) = fs::rename(&recovery_temp, path) {
+                    let _ = fs::rename(&corrupt_path, path);
+                    let _ = fs::remove_file(&recovery_temp);
+                    return Err(error.into());
+                }
+                Ok((
+                    project,
+                    Some(RecoveryReport {
+                        backup_path,
+                        corrupt_path,
+                    }),
+                ))
+            }
         }
     }
 }
@@ -553,6 +592,20 @@ fn temporary_sibling(path: &Path) -> Result<PathBuf, PersistenceError> {
         ".{file_name}.tmp-{}-{sequence}",
         std::process::id()
     )))
+}
+
+fn corrupt_sibling(path: &Path) -> Result<PathBuf, PersistenceError> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| PersistenceError::InvalidProject("project path has no file name".into()))?;
+    loop {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let candidate = path.with_file_name(format!("{file_name}.corrupt-{sequence}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
 }
 
 #[must_use]
@@ -806,6 +859,28 @@ mod tests {
 
         ProjectStore::save_atomic(&path, &bundle).unwrap();
         assert!(backup_path(&path).exists());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn corrupted_primary_is_recovered_without_destroying_the_evidence() {
+        let directory = test_directory();
+        let path = directory.join("recover.lightshow");
+        let bundle = sample_bundle();
+        ProjectStore::save_atomic(&path, &bundle).unwrap();
+        ProjectStore::save_atomic(&path, &bundle).unwrap();
+        fs::write(&path, b"not a zip archive").unwrap();
+
+        let (loaded, recovery) = ProjectStore::load_recovering(&path).unwrap();
+        let recovery = recovery.unwrap();
+        assert_eq!(loaded.bundle.project.name, "Sample");
+        assert!(recovery.backup_path.exists());
+        assert!(recovery.corrupt_path.exists());
+        assert_eq!(
+            fs::read(&recovery.corrupt_path).unwrap(),
+            b"not a zip archive"
+        );
+        assert!(ProjectStore::load(&path).is_ok());
         fs::remove_dir_all(directory).unwrap();
     }
 

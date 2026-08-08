@@ -214,6 +214,13 @@ export interface EngineBootstrap {
   project: ProjectView;
   engine: EngineView;
   projectPath: string;
+  recentProjects: RecentProject[];
+  recoveryNotice: string | null;
+}
+
+export interface RecentProject {
+  name: string;
+  path: string;
 }
 
 export type EngineCommand =

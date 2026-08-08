@@ -42,13 +42,17 @@ use uuid::Uuid;
 const DEFAULT_PROJECT_FILE: &str = "LightHouse Demo.lightshow";
 const SESSION_FILE: &str = "engine-session.json";
 const ENGINE_LOG_FILE: &str = "engine.log";
+const PREFERENCES_FILE: &str = "desktop-preferences.json";
 const IPC_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_RECENT_PROJECTS: usize = 10;
 
 pub struct DesktopBackend {
     app_data_dir: PathBuf,
     project_path: PathBuf,
     bundle: ProjectBundle,
     fixture_library: FixtureLibrary,
+    recent_projects: Vec<PathBuf>,
+    recovery_notice: Option<String>,
     session: EngineSession,
     next_sequence: u64,
 }
@@ -58,21 +62,61 @@ impl DesktopBackend {
         fs::create_dir_all(&app_data_dir)?;
         let project_dir = app_data_dir.join("Projects");
         fs::create_dir_all(&project_dir)?;
-        let project_path = project_dir.join(DEFAULT_PROJECT_FILE);
-        if !project_path.exists() {
-            ProjectStore::save_atomic(&project_path, &demo_project()?)?;
+        let default_project_path = project_dir.join(DEFAULT_PROJECT_FILE);
+        if !default_project_path.exists() {
+            ProjectStore::save_atomic(&default_project_path, &demo_project()?)?;
         }
-        let bundle = ProjectStore::load(&project_path)?.bundle;
+        let preferences = DesktopPreferences::load(&app_data_dir)?;
+        let requested_path = preferences
+            .last_project
+            .as_deref()
+            .map(PathBuf::from)
+            .filter(|path| path.exists())
+            .unwrap_or_else(|| default_project_path.clone());
+        let (project_path, bundle, recovery_notice) =
+            match ProjectStore::load_recovering(&requested_path) {
+                Ok((loaded, recovery)) => {
+                    let notice = recovery.map(|report| {
+                        format!(
+                            "Recovered project from {}. The damaged file was preserved at {}.",
+                            report.backup_path.display(),
+                            report.corrupt_path.display()
+                        )
+                    });
+                    (requested_path, loaded.bundle, notice)
+                }
+                Err(error) if requested_path != default_project_path => {
+                    let loaded = ProjectStore::load_recovering(&default_project_path)?.0;
+                    (
+                        default_project_path,
+                        loaded.bundle,
+                        Some(format!(
+                            "Could not reopen {}: {error}. The demo project was opened instead.",
+                            requested_path.display()
+                        )),
+                    )
+                }
+                Err(error) => return Err(error.into()),
+            };
         let fixture_library = FixtureLibrary::with_embedded_pack()?;
         let session = EngineSession::connect_or_spawn(&app_data_dir, &project_path)?;
-        Ok(Self {
+        let mut backend = Self {
             app_data_dir,
             project_path,
             bundle,
             fixture_library,
+            recent_projects: preferences
+                .recent_projects
+                .into_iter()
+                .map(PathBuf::from)
+                .filter(|path| path.exists())
+                .collect(),
+            recovery_notice,
             session,
             next_sequence: 1,
-        })
+        };
+        backend.record_recent_project()?;
+        Ok(backend)
     }
 
     pub fn bootstrap(&mut self) -> Result<UiBootstrap, BackendError> {
@@ -81,7 +125,90 @@ impl DesktopBackend {
             project: project_view(&self.bundle, &snapshot, &self.fixture_library),
             engine: engine_view(snapshot, telemetry),
             project_path: self.project_path.to_string_lossy().into_owned(),
+            recent_projects: self
+                .recent_projects
+                .iter()
+                .map(|path| UiRecentProject {
+                    name: project_name_from_path(path),
+                    path: path.to_string_lossy().into_owned(),
+                })
+                .collect(),
+            recovery_notice: self.recovery_notice.clone(),
         })
+    }
+
+    pub fn create_project(&mut self, path: PathBuf) -> Result<UiBootstrap, BackendError> {
+        let path = ensure_lightshow_extension(path);
+        let name = project_name_from_path(&path);
+        let bundle = empty_project(name);
+        ProjectStore::save_atomic(&path, &bundle)?;
+        self.switch_project(path, bundle, None)
+    }
+
+    pub fn open_project(&mut self, path: PathBuf) -> Result<UiBootstrap, BackendError> {
+        let (loaded, recovery) = ProjectStore::load_recovering(&path)?;
+        let notice = recovery.map(|report| {
+            format!(
+                "Recovered project from {}. The damaged file was preserved at {}.",
+                report.backup_path.display(),
+                report.corrupt_path.display()
+            )
+        });
+        self.switch_project(path, loaded.bundle, notice)
+    }
+
+    pub fn save_project_as(&mut self, path: PathBuf) -> Result<UiBootstrap, BackendError> {
+        let path = ensure_lightshow_extension(path);
+        ProjectStore::save_atomic(&path, &self.bundle)?;
+        self.switch_project(path, self.bundle.clone(), None)
+    }
+
+    #[must_use]
+    pub fn project_path(&self) -> &Path {
+        &self.project_path
+    }
+
+    fn switch_project(
+        &mut self,
+        path: PathBuf,
+        bundle: ProjectBundle,
+        recovery_notice: Option<String>,
+    ) -> Result<UiBootstrap, BackendError> {
+        bundle.validate()?;
+        let previous_path = self.project_path.clone();
+        self.session.shutdown()?;
+        let next_session = match EngineSession::spawn(&self.app_data_dir, &path) {
+            Ok(session) => session,
+            Err(error) => {
+                self.session = EngineSession::spawn(&self.app_data_dir, &previous_path)?;
+                return Err(error);
+            }
+        };
+        self.project_path = path;
+        self.bundle = bundle;
+        self.session = next_session;
+        self.next_sequence = 1;
+        self.recovery_notice = recovery_notice;
+        self.record_recent_project()?;
+        self.bootstrap()
+    }
+
+    fn record_recent_project(&mut self) -> Result<(), BackendError> {
+        self.recent_projects
+            .retain(|path| path != &self.project_path);
+        self.recent_projects.insert(0, self.project_path.clone());
+        self.recent_projects.truncate(MAX_RECENT_PROJECTS);
+        DesktopPreferences {
+            schema_version: 1,
+            last_project: Some(self.project_path.to_string_lossy().into_owned()),
+            recent_projects: self
+                .recent_projects
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+        }
+        .save(&self.app_data_dir)?;
+        Ok(())
     }
 
     pub fn refresh(&mut self) -> Result<UiEngineView, BackendError> {
@@ -562,6 +689,15 @@ pub struct UiBootstrap {
     project: UiProjectView,
     engine: UiEngineView,
     project_path: String,
+    recent_projects: Vec<UiRecentProject>,
+    recovery_notice: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiRecentProject {
+    name: String,
+    path: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1175,6 +1311,36 @@ struct SessionRecord {
     auth_token: String,
     project_path: String,
     process_id: u32,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopPreferences {
+    schema_version: u32,
+    last_project: Option<String>,
+    recent_projects: Vec<String>,
+}
+
+impl DesktopPreferences {
+    fn load(app_data_dir: &Path) -> Result<Self, BackendError> {
+        let path = app_data_dir.join(PREFERENCES_FILE);
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let Ok(preferences) = serde_json::from_slice::<Self>(&fs::read(path)?) else {
+            return Ok(Self::default());
+        };
+        if preferences.schema_version > 1 {
+            return Ok(Self::default());
+        }
+        Ok(preferences)
+    }
+
+    fn save(&self, app_data_dir: &Path) -> Result<(), BackendError> {
+        let path = app_data_dir.join(PREFERENCES_FILE);
+        fs::write(path, serde_json::to_vec_pretty(self)?)?;
+        Ok(())
+    }
 }
 
 struct EngineSession {
@@ -2631,6 +2797,41 @@ fn demo_project() -> Result<ProjectBundle, BackendError> {
     Ok(bundle)
 }
 
+fn empty_project(name: String) -> ProjectBundle {
+    let mut bundle = ProjectBundle::empty(ProjectId::new(Uuid::new_v4().as_u128()), name);
+    bundle.project.universes.push(UniverseRecord {
+        id: UniverseId::new(1),
+        name: "Universe 1".into(),
+        enabled: true,
+        routes: vec![OutputRouteRecord::ArtNet {
+            port_address: 0,
+            destination: "127.0.0.1:6454".into(),
+            interface: None,
+            broadcast: false,
+        }],
+    });
+    bundle
+}
+
+fn ensure_lightshow_extension(mut path: PathBuf) -> PathBuf {
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("lightshow"))
+    {
+        path.set_extension("lightshow");
+    }
+    path
+}
+
+fn project_name_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Untitled Show")
+        .into()
+}
+
 fn scene(id: u128, name: &str, fade_ms: u64, intensity: f64, rgb: (f64, f64, f64)) -> SceneData {
     let mut values = FixtureParameterValues::new();
     for fixture_id in 101..=106 {
@@ -3166,6 +3367,7 @@ mod tests {
     fn desktop_backend_round_trips_commands_through_the_sidecar() {
         let directory = test_directory();
         let mut backend = DesktopBackend::open(directory.clone()).unwrap();
+        let demo_path = backend.project_path().to_path_buf();
         let first = backend.bootstrap().unwrap().engine;
         thread::sleep(Duration::from_millis(100));
         let later = backend.refresh().unwrap();
@@ -3253,6 +3455,20 @@ mod tests {
                 .iter()
                 .any(|definition| definition.id == "ofl.chauvet-dj.slimpar-pro-h-usb")
         );
+
+        let fresh = backend
+            .create_project(directory.join("Festival Fresh"))
+            .unwrap();
+        assert_eq!(fresh.project.name, "Festival Fresh");
+        assert!(fresh.project.fixtures.is_empty());
+        assert!(backend.project_path().ends_with("Festival Fresh.lightshow"));
+        let copy = backend
+            .save_project_as(directory.join("Festival Copy"))
+            .unwrap();
+        assert!(copy.project_path.ends_with("Festival Copy.lightshow"));
+        let reopened = backend.open_project(demo_path).unwrap();
+        assert_eq!(reopened.project.fixtures.len(), 7);
+        assert!(reopened.recent_projects.len() >= 3);
         assert!(backend.refresh().unwrap().connected);
 
         backend.session.shutdown().unwrap();
