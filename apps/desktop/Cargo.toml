@@ -10,6 +10,16 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 tauri = { version = "2.11.5", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+uuid = { version = "1.24.0", features = ["v4"] }
+lighthouse-commands = { path = "../../crates/commands" }
+lighthouse-domain = { path = "../../crates/domain" }
+lighthouse-effects = { path = "../../crates/effects" }
+lighthouse-fixture-library = { path = "../../crates/fixture-library" }
+lighthouse-ipc = { path = "../../crates/ipc" }
+lighthouse-persistence = { path = "../../crates/persistence" }
+lighthouse-show-engine = { path = "../../crates/show-engine" }
 
 [lints]
 workspace = true

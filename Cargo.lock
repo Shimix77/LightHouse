@@ -1660,8 +1660,18 @@ dependencies = [
 name = "lighthouse-desktop"
 version = "0.1.0"
 dependencies = [
+ "lighthouse-commands",
+ "lighthouse-domain",
+ "lighthouse-effects",
+ "lighthouse-fixture-library",
+ "lighthouse-ipc",
+ "lighthouse-persistence",
+ "lighthouse-show-engine",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
+ "uuid",
 ]
 
 [[package]]

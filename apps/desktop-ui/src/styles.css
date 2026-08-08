@@ -161,6 +161,11 @@ input:focus-visible {
   box-shadow: 0 0 8px rgba(82, 214, 154, 0.65);
 }
 
+.status-dot.is-error {
+  background: var(--red);
+  box-shadow: 0 0 8px rgba(239, 67, 88, 0.65);
+}
+
 .mode-switch {
   display: flex;
   padding: 3px;

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.lighthouse.controller",
   "build": {
-    "beforeDevCommand": "pnpm --dir apps/desktop-ui dev",
+    "beforeDevCommand": "cargo build -p lighthouse-show-engine-app && pnpm --dir apps/desktop-ui dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --dir apps/desktop-ui build",
+    "beforeBuildCommand": "cargo build -p lighthouse-show-engine-app --release && pnpm --dir apps/desktop-ui build",
     "frontendDist": "../desktop-ui/dist"
   },
   "app": {

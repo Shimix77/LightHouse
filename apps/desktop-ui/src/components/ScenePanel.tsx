@@ -9,6 +9,11 @@ export function ScenePanel() {
   const freeze = useShowStore((state) => state.freeze);
   const toggleBlind = useShowStore((state) => state.toggleBlind);
   const toggleFreeze = useShowStore((state) => state.toggleFreeze);
+  const goNextCue = useShowStore((state) => state.goNextCue);
+  const backCue = useShowStore((state) => state.backCue);
+  const toggleCuePause = useShowStore((state) => state.toggleCuePause);
+  const cuePaused = useShowStore((state) => state.cuePaused);
+  const cueCursor = useShowStore((state) => state.cueCursor);
 
   return (
     <section className="scene-panel" aria-label="Scenes and cue list">
@@ -22,9 +27,9 @@ export function ScenePanel() {
       </div>
       <div className="playback-row">
         <div className="transport-controls">
-          <button title="Previous cue">◀ BACK</button>
-          <button title="Pause cue list">Ⅱ</button>
-          <button className="go-button">GO <span>›</span></button>
+          <button title="Previous cue" onClick={backCue}>◀ BACK</button>
+          <button title={cuePaused ? "Resume cue list" : "Pause cue list"} className={cuePaused ? "is-active" : ""} onClick={toggleCuePause}>{cuePaused ? "▶" : "Ⅱ"}</button>
+          <button className="go-button" onClick={goNextCue}>GO <span>{cueCursor === null ? "›" : cueCursor + 2}</span></button>
         </div>
         <div className="scene-grid">
           {scenes.map((scene) => (

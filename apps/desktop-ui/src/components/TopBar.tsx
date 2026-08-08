@@ -10,6 +10,10 @@ export function TopBar() {
   const toggleBlackout = useShowStore((state) => state.toggleBlackout);
   const bpm = useShowStore((state) => state.bpm);
   const setBpm = useShowStore((state) => state.setBpm);
+  const tapTempo = useShowStore((state) => state.tapTempo);
+  const engineConnected = useShowStore((state) => state.engineConnected);
+  const universeCount = useShowStore((state) => state.universeCount);
+  const telemetry = useShowStore((state) => state.engineTelemetry);
 
   return (
     <header className="top-bar">
@@ -22,7 +26,7 @@ export function TopBar() {
       </div>
 
       <div className="save-status" title="Project changes are saved">
-        <span className="status-dot is-good" />
+        <span className={`status-dot ${engineConnected ? "is-good" : ""}`} />
         Saved now
       </div>
 
@@ -33,7 +37,7 @@ export function TopBar() {
 
       <div className="tempo-control">
         <span className="control-kicker">TEMPO</span>
-        <button className="tap-button" onClick={() => setBpm(bpm)}>TAP</button>
+        <button className="tap-button" onClick={tapTempo}>TAP</button>
         <label>
           <input
             aria-label="Tempo BPM"
@@ -49,8 +53,8 @@ export function TopBar() {
       </div>
 
       <div className="output-status">
-        <span className="status-dot is-good" />
-        <div><strong>Art-Net</strong><small>1 universe · 44 Hz</small></div>
+        <span className={`status-dot ${engineConnected && telemetry.sendErrors === 0 ? "is-good" : "is-error"}`} />
+        <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · 44 Hz</small></div>
       </div>
 
       <label className="master-control">
