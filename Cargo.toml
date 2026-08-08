@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "apps/show-engine",
+    "apps/virtual-dmx-node",
+    "crates/domain",
+    "crates/fixture-model",
+    "crates/output-api",
+    "crates/output-artnet",
+    "crates/parameter-resolver",
+    "crates/patch",
+    "crates/show-engine",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.97"
+version = "0.1.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
