@@ -4,6 +4,7 @@ import { MicrophoneBeatDetector } from "../services/audioBeatDetector";
 import { useShowStore } from "../store/showStore";
 import { openLiveDisplay } from "../services/engineClient";
 import { OutputSettingsDialog } from "./OutputSettingsDialog";
+import { UserGuideDialog } from "./UserGuideDialog";
 
 export function TopBar() {
   const projectName = useShowStore((state) => state.projectName);
@@ -32,6 +33,7 @@ export function TopBar() {
   const dismissRecoveryNotice = useShowStore((state) => state.dismissRecoveryNotice);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [outputSettingsOpen, setOutputSettingsOpen] = useState(false);
+  const [userGuideOpen, setUserGuideOpen] = useState(false);
   const projectMenu = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -116,6 +118,8 @@ export function TopBar() {
         <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · {refreshHz} Hz</small></div>
       </button>
 
+      <button className="guide-button" type="button" title="Otvoriť návod – prvé kroky" onClick={() => setUserGuideOpen(true)}>?</button>
+
       <button className="live-window-button" title="Open Live panel on another display" onClick={() => { void openLiveDisplay(); }}>▣ LIVE WINDOW</button>
 
       <label className="master-control">
@@ -140,6 +144,7 @@ export function TopBar() {
         BLACKOUT
       </button>
       {outputSettingsOpen && <OutputSettingsDialog onClose={() => setOutputSettingsOpen(false)} />}
+      {userGuideOpen && <UserGuideDialog onClose={() => setUserGuideOpen(false)} />}
     </header>
   );
 }

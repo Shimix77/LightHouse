@@ -6,6 +6,7 @@ The approved internal macOS MVP is feature-complete. It combines a headless Rust
 
 ## Documentation
 
+- [Slovenský používateľský návod – prvé kroky](docs/USER_GUIDE_SK.md)
 - [Technical architecture](docs/architecture/ARCHITECTURE.md)
 - [Approved MVP decisions](docs/architecture/MVP_DECISIONS.md)
 - [Show Core behavior baseline](docs/behavior-specs/SHOW_CORE.md)
