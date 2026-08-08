@@ -133,6 +133,10 @@ pub enum Command {
     SetTempo {
         bpm: f64,
     },
+    SetAudioTempo {
+        bpm: f64,
+        confidence: NormalizedValue,
+    },
     TapTempo,
 }
 

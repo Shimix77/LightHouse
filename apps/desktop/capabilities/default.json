@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default LightHouse desktop window permissions",
-  "windows": ["main"],
+  "windows": ["main", "live-display"],
   "permissions": ["core:default"]
 }

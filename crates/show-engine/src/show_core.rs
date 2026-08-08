@@ -40,6 +40,8 @@ pub struct ShowSnapshot {
     pub blind: bool,
     pub freeze: bool,
     pub bpm: f64,
+    pub beat_source: BeatSource,
+    pub beat_confidence: NormalizedValue,
 }
 
 #[derive(Clone, Debug)]
@@ -248,6 +250,8 @@ impl<C: MonotonicClock> ShowCore<C> {
             blind: self.blind,
             freeze: self.frozen_at.is_some(),
             bpm: self.beat_clock.bpm(),
+            beat_source: self.beat_clock.source(),
+            beat_confidence: self.beat_clock.confidence(),
         }
     }
 
@@ -499,6 +503,12 @@ impl<C: MonotonicClock> ShowCore<C> {
             Command::SetTempo { bpm } => {
                 self.beat_clock
                     .set_bpm(bpm, now, BeatSource::Fixed, NormalizedValue::FULL)
+                    .map_err(|error| rejection(RejectionCode::InvalidCommand, error.to_string()))?;
+                Ok(vec![DomainEvent::TempoChanged { bpm }])
+            }
+            Command::SetAudioTempo { bpm, confidence } => {
+                self.beat_clock
+                    .set_bpm(bpm, now, BeatSource::Audio, confidence)
                     .map_err(|error| rejection(RejectionCode::InvalidCommand, error.to_string()))?;
                 Ok(vec![DomainEvent::TempoChanged { bpm }])
             }
@@ -1147,6 +1157,24 @@ mod tests {
             values[&second][&ParameterId::new("color.blue")],
             NormalizedValue::FULL
         );
+    }
+
+    #[test]
+    fn audio_tempo_uses_the_shared_beat_clock_with_confidence() {
+        let clock = ManualClock::default();
+        let mut core = ShowCore::new(PROJECT_ID, clock);
+        accepted(
+            &mut core,
+            1,
+            Command::SetAudioTempo {
+                bpm: 128.0,
+                confidence: NormalizedValue::clamped(0.82),
+            },
+        );
+        let snapshot = core.snapshot();
+        assert_eq!(snapshot.bpm, 128.0);
+        assert_eq!(snapshot.beat_source, BeatSource::Audio);
+        assert_eq!(snapshot.beat_confidence.get(), 0.82);
     }
 
     #[test]

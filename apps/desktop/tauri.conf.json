@@ -28,6 +28,10 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": false,
+    "macOS": {
+      "entitlements": "LightHouse.entitlements",
+      "infoPlist": "Info.plist"
+    }
   }
 }
