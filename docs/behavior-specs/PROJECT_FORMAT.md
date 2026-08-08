@@ -32,11 +32,11 @@ MyShow.lightshow
 
 ## Autosave and recovery
 
-- Accepted commands can be appended to a JSON Lines recovery journal and flushed independently of the main project save.
+- Accepted commands are appended to a JSON Lines recovery journal and flushed independently of the main project save.
 - Recovery accepts complete valid entries in order.
 - Only an incomplete final line is ignored after a crash; corruption in the middle is reported and never silently skipped.
-- After a successful project checkpoint the recovery journal can be truncated.
-- Default autosave interval is 30 seconds while dirty.
+- A sidecar restart replays the valid journal before publishing its first recovered frame.
+- Every structural edit is saved immediately as an atomic project checkpoint; it does not wait for a periodic autosave timer. A successful checkpoint or clean shutdown drains and truncates the older runtime journal.
 
 ## Migration
 

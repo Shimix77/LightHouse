@@ -251,6 +251,21 @@ impl ProjectBundle {
                 "project name cannot be empty".into(),
             ));
         }
+        if !(30..=44).contains(&self.project.settings.dmx_refresh_hz) {
+            return Err(PersistenceError::InvalidProject(
+                "DMX refresh rate must be between 30 and 44 Hz".into(),
+            ));
+        }
+        if !(1_000..=300_000).contains(&self.project.settings.disconnect_timeout_ms) {
+            return Err(PersistenceError::InvalidProject(
+                "disconnect timeout must be between 1 and 300 seconds".into(),
+            ));
+        }
+        if !(1_000..=300_000).contains(&self.project.settings.autosave_interval_ms) {
+            return Err(PersistenceError::InvalidProject(
+                "autosave interval must be between 1 and 300 seconds".into(),
+            ));
+        }
 
         let definition_keys: BTreeSet<_> = self
             .fixture_definitions
@@ -991,6 +1006,22 @@ mod tests {
             broadcast: false,
         }];
         assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn validation_rejects_unsafe_runtime_setting_ranges() {
+        let mut bundle = sample_bundle();
+        bundle.project.settings.dmx_refresh_hz = 60;
+        assert!(matches!(
+            bundle.validate(),
+            Err(PersistenceError::InvalidProject(_))
+        ));
+        bundle.project.settings.dmx_refresh_hz = 44;
+        bundle.project.settings.disconnect_timeout_ms = 500;
+        assert!(matches!(
+            bundle.validate(),
+            Err(PersistenceError::InvalidProject(_))
+        ));
     }
 
     #[test]

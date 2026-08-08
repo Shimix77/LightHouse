@@ -2,10 +2,10 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use lighthouse_domain::UniverseId;
 use lighthouse_engine_runtime::{EngineClient, EngineRuntime, EngineRuntimeConfig};
@@ -15,7 +15,7 @@ use lighthouse_ipc::{
 };
 use lighthouse_output_api::FrameSet;
 use lighthouse_output_artnet::{ART_NET_PORT, ArtNetOutput, ArtNetRoute};
-use lighthouse_persistence::{OutputRouteRecord, ProjectStore};
+use lighthouse_persistence::{DisconnectPolicy, OutputRouteRecord, ProjectStore, RecoveryJournal};
 use lighthouse_show_engine::{DEFAULT_DMX_REFRESH_HZ, DmxOutputLoop};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -46,16 +46,21 @@ fn serve(project_path: &Path, auth_token: String, address: &str) -> Result<(), B
     let mut adapter = ArtNetOutput::bind("0.0.0.0:0")?;
     configure_artnet_routes(&mut adapter, &loaded.bundle)?;
     let refresh_hz = loaded.bundle.project.settings.dmx_refresh_hz;
+    let disconnect_policy = loaded.bundle.project.settings.disconnect_policy;
+    let disconnect_timeout =
+        Duration::from_millis(loaded.bundle.project.settings.disconnect_timeout_ms);
     let project_id = loaded.bundle.project.project_id;
+    let recovery_path = recovery_path(project_path);
     let runtime = EngineRuntime::start(
         loaded.bundle,
         adapter,
         EngineRuntimeConfig {
             refresh_hz,
-            recovery_journal_path: Some(recovery_path(project_path)),
+            recovery_journal_path: Some(recovery_path.clone()),
             ..EngineRuntimeConfig::default()
         },
     )?;
+    let watchdog = ClientWatchdog::new(disconnect_policy, disconnect_timeout, runtime.client());
 
     let listener = TcpListener::bind(address)?;
     listener.set_nonblocking(true)?;
@@ -66,15 +71,23 @@ fn serve(project_path: &Path, auth_token: String, address: &str) -> Result<(), B
     );
     let shutdown = Arc::new(AtomicBool::new(false));
     while !shutdown.load(Ordering::Acquire) {
+        watchdog.poll();
         match listener.accept() {
             Ok((stream, _peer_address)) => {
                 let validator = HandshakeValidator::new(auth_token.clone());
                 let client = runtime.client();
                 let client_shutdown = Arc::clone(&shutdown);
+                let client_watchdog = watchdog.clone();
                 thread::Builder::new()
                     .name("lighthouse-ipc-client".into())
                     .spawn(move || {
-                        let _ = handle_client(stream, &validator, &client, &client_shutdown);
+                        let _ = handle_client(
+                            stream,
+                            &validator,
+                            &client,
+                            &client_shutdown,
+                            &client_watchdog,
+                        );
                     })?;
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -86,7 +99,54 @@ fn serve(project_path: &Path, auth_token: String, address: &str) -> Result<(), B
     // Give the authenticated shutdown client time to receive its acknowledgement before
     // dropping the runtime and terminating the process.
     thread::sleep(Duration::from_millis(40));
+    runtime.shutdown();
+    RecoveryJournal::new(recovery_path).truncate()?;
     Ok(())
+}
+
+#[derive(Clone)]
+struct ClientWatchdog {
+    enabled: bool,
+    timeout: Duration,
+    last_activity: Arc<Mutex<Instant>>,
+    tripped: Arc<AtomicBool>,
+    client: EngineClient,
+}
+
+impl ClientWatchdog {
+    fn new(policy: DisconnectPolicy, timeout: Duration, client: EngineClient) -> Self {
+        Self {
+            enabled: policy == DisconnectPolicy::BlackoutAfterTimeout,
+            timeout,
+            last_activity: Arc::new(Mutex::new(Instant::now())),
+            tripped: Arc::new(AtomicBool::new(false)),
+            client,
+        }
+    }
+
+    fn mark_activity(&self) {
+        *self
+            .last_activity
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Instant::now();
+        if self.tripped.swap(false, Ordering::AcqRel) {
+            self.client.set_watchdog_blackout(false);
+        }
+    }
+
+    fn poll(&self) {
+        if !self.enabled || self.tripped.load(Ordering::Acquire) {
+            return;
+        }
+        let elapsed = self
+            .last_activity
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .elapsed();
+        if elapsed >= self.timeout && !self.tripped.swap(true, Ordering::AcqRel) {
+            self.client.set_watchdog_blackout(true);
+        }
+    }
 }
 
 fn configure_artnet_routes(
@@ -128,6 +188,7 @@ fn handle_client(
     validator: &HandshakeValidator,
     client: &EngineClient,
     shutdown: &AtomicBool,
+    watchdog: &ClientWatchdog,
 ) -> Result<(), Box<dyn Error>> {
     stream.set_nonblocking(false)?;
     stream.set_nodelay(true)?;
@@ -136,6 +197,7 @@ fn handle_client(
     };
     match validator.validate(&hello) {
         HandshakeResult::Accepted => {
+            watchdog.mark_activity();
             let snapshot = client.snapshot();
             write_message(
                 &mut stream,
@@ -163,6 +225,7 @@ fn handle_client(
     }
 
     while let Some(message) = read_message::<_, ClientMessage>(&mut stream)? {
+        watchdog.mark_activity();
         let response = match message {
             ClientMessage::Hello { .. } => ServerMessage::EngineError {
                 message: "client is already authenticated".into(),
@@ -197,6 +260,7 @@ fn snapshot_message(client: &EngineClient) -> ServerMessage {
             missed_deadlines: snapshot.telemetry.output.missed_deadlines,
             dropped_commands: snapshot.telemetry.dropped_commands,
             dropped_journal_entries: snapshot.telemetry.dropped_journal_entries,
+            watchdog_blackout: snapshot.telemetry.watchdog_blackout,
         },
     }
 }

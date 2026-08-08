@@ -835,6 +835,92 @@ button.output-status:hover {
   color: var(--red);
 }
 
+.watchdog-warning {
+  margin: 10px 18px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 67, 88, .6);
+  border-radius: 5px;
+  background: rgba(239, 67, 88, .12);
+  color: #ff8a98;
+  font-size: 9px;
+  font-weight: 850;
+  text-align: center;
+}
+
+.output-safety-settings {
+  display: grid;
+  grid-template-columns: 1.25fr .55fr 1fr .55fr;
+  align-items: end;
+  gap: 10px;
+  margin: 12px 18px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0b1118;
+}
+
+.output-safety-settings > div:first-child,
+.output-safety-settings label {
+  display: grid;
+  gap: 5px;
+}
+
+.output-safety-settings strong,
+.output-safety-settings > div:first-child span {
+  display: block;
+}
+
+.output-safety-settings strong {
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.output-safety-settings > div:first-child span,
+.output-safety-settings label > span {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.output-safety-settings label > span {
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.output-safety-settings select,
+.output-safety-settings input {
+  width: 100%;
+  min-width: 0;
+  height: 31px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  outline: 0;
+  background: #090d12;
+  color: var(--text);
+  font: 9px var(--mono);
+}
+
+.output-safety-settings select:focus,
+.output-safety-settings input:focus {
+  border-color: var(--cyan);
+}
+
+.output-safety-settings input:disabled {
+  opacity: .38;
+}
+
+.timeout-field {
+  display: grid;
+  grid-template-columns: 1fr 25px;
+  align-items: center;
+}
+
+.timeout-field b {
+  color: var(--text-muted);
+  font: 8px var(--mono);
+  text-align: right;
+}
+
 .output-help {
   display: grid;
   gap: 4px;

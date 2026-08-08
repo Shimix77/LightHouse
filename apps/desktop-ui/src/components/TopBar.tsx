@@ -19,6 +19,7 @@ export function TopBar() {
   const tapTempo = useShowStore((state) => state.tapTempo);
   const engineConnected = useShowStore((state) => state.engineConnected);
   const universeCount = useShowStore((state) => state.universeCount);
+  const refreshHz = useShowStore((state) => state.projectSettings.dmxRefreshHz);
   const telemetry = useShowStore((state) => state.engineTelemetry);
   const projectPath = useShowStore((state) => state.projectPath);
   const recentProjects = useShowStore((state) => state.recentProjects);
@@ -112,7 +113,7 @@ export function TopBar() {
 
       <button className="output-status" type="button" title="Configure Art-Net output" onClick={() => setOutputSettingsOpen(true)}>
         <span className={`status-dot ${engineConnected && telemetry.sendErrors === 0 ? "is-good" : "is-error"}`} />
-        <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · 44 Hz</small></div>
+        <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · {refreshHz} Hz</small></div>
       </button>
 
       <button className="live-window-button" title="Open Live panel on another display" onClick={() => { void openLiveDisplay(); }}>▣ LIVE WINDOW</button>
