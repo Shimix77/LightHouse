@@ -6,6 +6,12 @@ import { ScenePanel } from "./components/ScenePanel";
 import { StageEditor } from "./components/StageEditor";
 import { StageToolbar } from "./components/StageToolbar";
 import { TopBar } from "./components/TopBar";
+import {
+  errorMessage,
+  getEngineBootstrap,
+  hasNativeEngine,
+  refreshEngine,
+} from "./services/engineClient";
 import { useShowStore } from "./store/showStore";
 
 export function App() {
@@ -14,6 +20,12 @@ export function App() {
   const duplicate = useShowStore((state) => state.duplicateSelection);
   const remove = useShowStore((state) => state.deleteSelection);
   const toggleBlackout = useShowStore((state) => state.toggleBlackout);
+  const hydrateEngine = useShowStore((state) => state.hydrateEngine);
+  const applyEngineView = useShowStore((state) => state.applyEngineView);
+  const setEngineError = useShowStore((state) => state.setEngineError);
+  const engineConnected = useShowStore((state) => state.engineConnected);
+  const engineError = useShowStore((state) => state.engineError);
+  const telemetry = useShowStore((state) => state.engineTelemetry);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -35,6 +47,35 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [duplicate, redo, remove, toggleBlackout, undo]);
 
+  useEffect(() => {
+    if (!hasNativeEngine()) return;
+    let cancelled = false;
+    let polling = false;
+    void getEngineBootstrap()
+      .then((bootstrap) => {
+        if (!cancelled) hydrateEngine(bootstrap);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setEngineError(errorMessage(error));
+      });
+    const timer = window.setInterval(() => {
+      if (cancelled || polling) return;
+      polling = true;
+      void refreshEngine()
+        .then((view) => {
+          if (!cancelled) applyEngineView(view);
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) setEngineError(errorMessage(error));
+        })
+        .finally(() => { polling = false; });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [applyEngineView, hydrateEngine, setEngineError]);
+
   return (
     <main className="app-shell">
       <TopBar />
@@ -46,9 +87,10 @@ export function App() {
       </div>
       <ScenePanel />
       <footer className="status-bar">
-        <span><i className="status-dot is-good" /> Engine connected</span>
-        <span>Frame 1.4 ms</span>
-        <span>0 missed deadlines</span>
+        <span title={engineError}><i className={`status-dot ${engineConnected ? "is-good" : "is-error"}`} /> {engineConnected ? "Engine connected" : "Engine reconnecting"}</span>
+        <span>{telemetry.framesSent.toLocaleString()} frames sent</span>
+        <span>{telemetry.missedDeadlines} missed deadlines</span>
+        <span>{telemetry.sendErrors} output errors</span>
         <span className="status-spacer" />
         <span>⌘Z Undo</span><span>⇧B Blackout</span>
       </footer>
