@@ -1,0 +1,55 @@
+{
+  "id": "generic.rgbw-par",
+  "revision": "1",
+  "manufacturer": "LightHouse",
+  "model": "Generic RGBW PAR",
+  "modes": [
+    {
+      "id": "5ch",
+      "name": "Intensity + RGBW",
+      "footprint": 5,
+      "parameters": [
+        {
+          "id": "intensity",
+          "name": "Intensity",
+          "capability": "intensity",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 0 },
+          "invert": false
+        },
+        {
+          "id": "color.red",
+          "name": "Red",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 1 },
+          "invert": false
+        },
+        {
+          "id": "color.green",
+          "name": "Green",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 2 },
+          "invert": false
+        },
+        {
+          "id": "color.blue",
+          "name": "Blue",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 3 },
+          "invert": false
+        },
+        {
+          "id": "color.white",
+          "name": "White",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 4 },
+          "invert": false
+        }
+      ]
+    }
+  ]
+}

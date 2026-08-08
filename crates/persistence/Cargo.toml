@@ -1,0 +1,22 @@
+[package]
+name = "lighthouse-persistence"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-commands = { path = "../commands" }
+lighthouse-domain = { path = "../domain" }
+lighthouse-effects = { path = "../effects" }
+lighthouse-fixture-model = { path = "../fixture-model" }
+lighthouse-patch = { path = "../patch" }
+serde.workspace = true
+serde_json.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+lighthouse-fixture-library = { path = "../fixture-library" }
+
+[lints]
+workspace = true

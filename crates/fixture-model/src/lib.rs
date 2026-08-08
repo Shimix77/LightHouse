@@ -5,8 +5,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use lighthouse_domain::{NormalizedValue, ParameterId};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ParameterCapability {
     Intensity,
     Color,
@@ -17,7 +19,8 @@ pub enum ParameterCapability {
     Custom(String),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "resolution")]
 pub enum DmxBinding {
     EightBit {
         offset: u16,
@@ -40,7 +43,8 @@ impl DmxBinding {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ParameterDefinition {
     pub id: ParameterId,
     pub name: String,
@@ -50,7 +54,8 @@ pub struct ParameterDefinition {
     pub invert: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FixtureMode {
     pub id: String,
     pub name: String,
@@ -90,7 +95,8 @@ impl FixtureMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FixtureDefinition {
     pub id: String,
     pub revision: String,

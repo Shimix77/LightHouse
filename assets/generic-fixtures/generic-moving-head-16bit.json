@@ -1,0 +1,79 @@
+{
+  "id": "generic.moving-head-16bit",
+  "revision": "1",
+  "manufacturer": "LightHouse",
+  "model": "Generic 16-bit Moving Head",
+  "modes": [
+    {
+      "id": "10ch",
+      "name": "Pan/Tilt 16-bit + RGB + Beam",
+      "footprint": 10,
+      "parameters": [
+        {
+          "id": "position.pan",
+          "name": "Pan",
+          "capability": "position",
+          "defaultValue": 0.5,
+          "binding": { "resolution": "sixteenBit", "coarse_offset": 0, "fine_offset": 1 },
+          "invert": false
+        },
+        {
+          "id": "position.tilt",
+          "name": "Tilt",
+          "capability": "position",
+          "defaultValue": 0.5,
+          "binding": { "resolution": "sixteenBit", "coarse_offset": 2, "fine_offset": 3 },
+          "invert": false
+        },
+        {
+          "id": "intensity",
+          "name": "Intensity",
+          "capability": "intensity",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 4 },
+          "invert": false
+        },
+        {
+          "id": "color.red",
+          "name": "Red",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 5 },
+          "invert": false
+        },
+        {
+          "id": "color.green",
+          "name": "Green",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 6 },
+          "invert": false
+        },
+        {
+          "id": "color.blue",
+          "name": "Blue",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 7 },
+          "invert": false
+        },
+        {
+          "id": "beam.zoom",
+          "name": "Zoom",
+          "capability": "beam",
+          "defaultValue": 0.5,
+          "binding": { "resolution": "eightBit", "offset": 8 },
+          "invert": false
+        },
+        {
+          "id": "shutter",
+          "name": "Shutter",
+          "capability": "shutter",
+          "defaultValue": 1.0,
+          "binding": { "resolution": "eightBit", "offset": 9 },
+          "invert": false
+        }
+      ]
+    }
+  ]
+}

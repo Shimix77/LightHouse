@@ -3,9 +3,14 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use serde::{Deserialize, Serialize};
+
 macro_rules! typed_id {
     ($name:ident) => {
-        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(
+            Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+        )]
+        #[serde(transparent)]
         pub struct $name(pub u128);
 
         impl $name {
@@ -17,7 +22,8 @@ macro_rules! typed_id {
     };
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct FixtureId(pub u128);
 
 impl FixtureId {
@@ -34,7 +40,8 @@ typed_id!(EffectId);
 typed_id!(GroupId);
 typed_id!(LayoutObjectId);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct UniverseId(pub u32);
 
 impl UniverseId {
@@ -44,7 +51,8 @@ impl UniverseId {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct ParameterId(String);
 
 impl ParameterId {
@@ -65,7 +73,8 @@ impl From<&str> for ParameterId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(try_from = "f64", into = "f64")]
 pub struct NormalizedValue(f64);
 
 impl NormalizedValue {
@@ -101,7 +110,22 @@ impl NormalizedValue {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl TryFrom<f64> for NormalizedValue {
+    type Error = ValueError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<NormalizedValue> for f64 {
+    fn from(value: NormalizedValue) -> Self {
+        value.get()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type", content = "value")]
 pub enum LogicalValue {
     Scalar(NormalizedValue),
     ColorRgb {
