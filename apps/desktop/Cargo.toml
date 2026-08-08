@@ -23,6 +23,7 @@ lighthouse-fixture-model = { path = "../../crates/fixture-model" }
 lighthouse-ipc = { path = "../../crates/ipc" }
 lighthouse-persistence = { path = "../../crates/persistence" }
 lighthouse-show-engine = { path = "../../crates/show-engine" }
+lighthouse-output-usb-dmx = { path = "../../crates/output-usb-dmx" }
 
 [lints]
 workspace = true

@@ -206,7 +206,7 @@ export function ObjectPanel() {
   );
 }
 
-function CustomFixtureDialog({
+export function CustomFixtureDialog({
   onClose,
   onCreated,
 }: {

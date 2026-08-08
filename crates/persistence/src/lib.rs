@@ -92,6 +92,9 @@ pub enum OutputRouteRecord {
         interface: Option<String>,
         broadcast: bool,
     },
+    UsbDmx {
+        device_path: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -169,6 +172,18 @@ pub struct LiveControlRecord {
     pub effect_id: Option<lighthouse_domain::EffectId>,
     pub page: u16,
     pub position: u16,
+    #[serde(default)]
+    pub grid_x: Option<u16>,
+    #[serde(default)]
+    pub grid_y: Option<u16>,
+    #[serde(default)]
+    pub width: Option<u16>,
+    #[serde(default)]
+    pub height: Option<u16>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub behavior: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -317,6 +332,7 @@ impl ProjectBundle {
                 "universe IDs must be unique".into(),
             ));
         }
+        let mut usb_device_paths = BTreeSet::new();
         for universe in &self.project.universes {
             if universe.id.0 == 0 || universe.name.trim().is_empty() {
                 return Err(PersistenceError::InvalidProject(
@@ -366,6 +382,33 @@ impl ProjectBundle {
                                     "Art-Net MVP output supports IPv4 interfaces only".into(),
                                 ));
                             }
+                        }
+                    }
+                    OutputRouteRecord::UsbDmx { device_path } => {
+                        let valid_macos = device_path.starts_with("/dev/cu.")
+                            || device_path.starts_with("/dev/tty.");
+                        let valid_windows = device_path
+                            .strip_prefix("COM")
+                            .or_else(|| device_path.strip_prefix("com"))
+                            .is_some_and(|number| {
+                                number
+                                    .parse::<u16>()
+                                    .is_ok_and(|value| (1..=256).contains(&value))
+                            });
+                        if device_path.len() > 512
+                            || device_path.contains('\0')
+                            || device_path.contains("..")
+                            || !(valid_macos || valid_windows)
+                        {
+                            return Err(PersistenceError::InvalidProject(format!(
+                                "universe {} has an invalid USB-DMX device path",
+                                universe.id.0
+                            )));
+                        }
+                        if !usb_device_paths.insert(device_path.as_str()) {
+                            return Err(PersistenceError::InvalidProject(
+                                "one USB-DMX cable cannot serve more than one universe".into(),
+                            ));
                         }
                     }
                 }

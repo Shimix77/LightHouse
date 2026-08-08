@@ -151,7 +151,7 @@ export function TopBar() {
 
 type MicrophoneState = "off" | "requesting" | "listening" | "error";
 
-function MicrophoneBeatControl({ bpm }: { bpm: number }) {
+export function MicrophoneBeatControl({ bpm }: { bpm: number }) {
   const setAudioTempo = useShowStore((state) => state.setAudioTempo);
   const setBpm = useShowStore((state) => state.setBpm);
   const beatConfidence = useShowStore((state) => state.beatConfidence);

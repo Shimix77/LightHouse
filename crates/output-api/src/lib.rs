@@ -124,6 +124,45 @@ pub trait OutputAdapter: Send + 'static {
     fn send(&mut self, frames: &FrameSet) -> io::Result<()>;
 }
 
+/// Sends the same logical frame set to independent protocol adapters.
+/// Every adapter gets a chance to send even when another one reports an error.
+#[derive(Default)]
+pub struct OutputFanout {
+    adapters: Vec<Box<dyn OutputAdapter>>,
+}
+
+impl OutputFanout {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            adapters: Vec::new(),
+        }
+    }
+
+    pub fn push<A: OutputAdapter>(&mut self, adapter: A) {
+        self.adapters.push(Box::new(adapter));
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.adapters.is_empty()
+    }
+}
+
+impl OutputAdapter for OutputFanout {
+    fn send(&mut self, frames: &FrameSet) -> io::Result<()> {
+        let mut first_error = None;
+        for adapter in &mut self.adapters {
+            if let Err(error) = adapter.send(frames)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameError {
     InvalidAddress(u16),
@@ -232,5 +271,23 @@ mod tests {
         let scaled = frames.intensity_scaled_copy(NormalizedValue::new(0.5).unwrap());
         assert_eq!(scaled.frame(UniverseId::new(1)).unwrap().slot(1), Some(100));
         assert_eq!(scaled.frame(UniverseId::new(1)).unwrap().slot(2), Some(200));
+    }
+
+    #[test]
+    fn fanout_keeps_sending_after_one_adapter_fails() {
+        struct FailingOutput;
+        impl OutputAdapter for FailingOutput {
+            fn send(&mut self, _frames: &FrameSet) -> io::Result<()> {
+                Err(io::Error::other("expected failure"))
+            }
+        }
+
+        let (virtual_output, handle) = VirtualDmxOutput::new();
+        let mut fanout = OutputFanout::new();
+        fanout.push(FailingOutput);
+        fanout.push(virtual_output);
+
+        assert!(fanout.send(&FrameSet::default()).is_err());
+        assert_eq!(handle.snapshot().send_count, 1);
     }
 }

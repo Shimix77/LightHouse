@@ -31,12 +31,14 @@ import type {
   StageBackground,
   StageObject,
   StageObjectKind,
+  StageView,
   UniverseSummary,
 } from "../types/show";
 
 interface ShowUiState {
   projectName: string;
   mode: OperationMode;
+  stageView: StageView;
   fixtures: LayoutFixture[];
   selectedFixtureIds: string[];
   stageObjects: StageObject[];
@@ -75,6 +77,7 @@ interface ShowUiState {
   clipboardFixtureIds: string[];
   clipboardStageObjectIds: string[];
   setMode: (mode: OperationMode) => void;
+  setStageView: (view: StageView) => void;
   selectFixtures: (ids: string[], additive?: boolean) => void;
   selectStageObjects: (ids: string[], additive?: boolean) => void;
   captureFixtureHistory: () => void;
@@ -107,6 +110,7 @@ interface ShowUiState {
   deleteSelection: () => void;
   patchFixture: (fixtureId: string, universe: number, address: number) => void;
   addFixture: (definitionId: string, modeId: string, name: string) => void;
+  addFixturesAtPatch: (definitionId: string, modeId: string, name: string, quantity: number, universe: number, address: number) => Promise<boolean>;
   putCustomFixture: (fixture: CustomFixtureInput) => Promise<string | null>;
   newProject: () => Promise<void>;
   openProject: () => Promise<void>;
@@ -132,6 +136,7 @@ interface ShowUiState {
   addLiveControl: (label: string, sceneId: string | null, effectId: string | null) => void;
   deleteLiveControl: (controlId: string) => void;
   triggerLiveControl: (controlId: string) => void;
+  updateLiveControlLayout: (controlId: string, update: Pick<LiveControlSummary, "gridX" | "gridY" | "width" | "height" | "color" | "behavior">) => Promise<boolean>;
   setLivePage: (page: number) => void;
   hydrateEngine: (bootstrap: EngineBootstrap) => void;
   applyEngineView: (view: EngineView) => void;
@@ -153,6 +158,21 @@ const initialScenes: SceneSummary[] = [
   { id: "scene-3", number: "3", name: "Violet Motion", color: "#a970ff", active: false, fadeMs: 900 },
   { id: "scene-4", number: "4", name: "Full Energy", color: "#ff4d6d", active: false, fadeMs: 300 },
 ];
+
+const initialLiveControls: LiveControlSummary[] = initialScenes.map((scene, index) => ({
+  id: `live-${index + 1}`,
+  label: scene.name,
+  sceneId: scene.id,
+  effectId: null,
+  page: 1,
+  position: index,
+  gridX: (index % 2) * 6,
+  gridY: Math.floor(index / 2),
+  width: 6,
+  height: 1,
+  color: scene.color,
+  behavior: index === 3 ? "flash" : "radio",
+}));
 
 const initialFixtureDefinitions: FixtureDefinitionSummary[] = [
   { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", source: "generic", modes: [{ id: "1ch", name: "1 Channel", footprint: 1, parameters: [] }] },
@@ -237,6 +257,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
   return {
     projectName: "Main Stage — Demo",
     mode: "edit",
+    stageView: readStageView(),
     fixtures: initialFixtures,
     selectedFixtureIds: ["fx-5"],
     stageObjects: [],
@@ -245,10 +266,10 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     scenes: initialScenes,
     cueLists: [],
     effects: [],
-    liveControls: [],
+    liveControls: initialLiveControls,
     livePage: 1,
     fixtureDefinitions: initialFixtureDefinitions,
-    universes: [{ id: 1, name: "Universe 1", enabled: true, portAddress: 0, destination: "127.0.0.1:6454", interface: null, broadcast: false }],
+    universes: [{ id: 1, name: "Universe 1", enabled: true, protocol: "artNet", portAddress: 0, destination: "127.0.0.1:6454", interface: null, broadcast: false, devicePath: null }],
     projectSettings: { dmxRefreshHz: 44, disconnectPolicy: "holdLastLook", disconnectTimeoutMs: 10_000 },
     universeCount: 1,
     projectPath: "",
@@ -277,6 +298,10 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     setMode: (mode) => {
       set({ mode });
       dispatch({ type: "setOperationMode", data: { mode } });
+    },
+    setStageView: (stageView) => {
+      window.localStorage.setItem("lighthouse.stageView", stageView);
+      set({ stageView });
     },
     selectFixtures: (ids, additive = false) =>
       set((state) => ({
@@ -615,6 +640,11 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         type: "addFixture",
         data: { definitionId, modeId, name, x: 0, y: 0 },
       }),
+    addFixturesAtPatch: (definitionId, modeId, name, quantity, universe, address) =>
+      mutateProject({
+        type: "addFixturesAtPatch",
+        data: { definitionId, modeId, name, quantity, universe, address },
+      }),
     putCustomFixture: async (fixture) => {
       const definitionId = `custom.${crypto.randomUUID()}`;
       const saved = await mutateProject({
@@ -635,10 +665,12 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         universe: universe.id,
         name: universe.name,
         enabled: universe.enabled,
+        protocol: universe.protocol,
         portAddress: universe.portAddress,
         destination: universe.destination,
         interface: universe.interface,
         broadcast: universe.broadcast,
+        devicePath: universe.devicePath,
       },
     }),
     putProjectSettings: (settings) => mutateProject({
@@ -754,6 +786,10 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         }
       }
     },
+    updateLiveControlLayout: (controlId, update) => mutateProject({
+      type: "updateLiveControlLayout",
+      data: { controlId, ...update },
+    }),
     setLivePage: (livePage) => set({ livePage: Math.max(1, livePage) }),
     hydrateEngine: (bootstrap) => {
       const availableIds = new Set(bootstrap.project.fixtures.map((fixtureItem) => fixtureItem.id));
@@ -915,6 +951,11 @@ function emptyTelemetry(): EngineTelemetry {
     droppedJournalEntries: 0,
     watchdogBlackout: false,
   };
+}
+
+function readStageView(): StageView {
+  const value = window.localStorage.getItem("lighthouse.stageView");
+  return value === "top" ? "top" : "front";
 }
 
 function fixture(

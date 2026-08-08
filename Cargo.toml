@@ -12,6 +12,7 @@ members = [
     "crates/ipc",
     "crates/output-api",
     "crates/output-artnet",
+    "crates/output-usb-dmx",
     "crates/parameter-resolver",
     "crates/patch",
     "crates/persistence",
@@ -29,6 +30,7 @@ version = "0.1.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 zip = { version = "8.0.0", default-features = false }
+serialport = { version = "4.9.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

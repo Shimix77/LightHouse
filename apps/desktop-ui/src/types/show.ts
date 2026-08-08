@@ -1,4 +1,5 @@
 export type OperationMode = "edit" | "live";
+export type StageView = "front" | "top";
 
 export type FixtureKind = "dimmer" | "par" | "moving-head" | "strobe";
 export type StageObjectKind = "truss" | "speaker" | "stage" | "person" | "shape";
@@ -158,6 +159,12 @@ export interface LiveControlSummary {
   effectId: string | null;
   page: number;
   position: number;
+  gridX: number;
+  gridY: number;
+  width: number;
+  height: number;
+  color: string;
+  behavior: "toggle" | "flash" | "push" | "radio";
 }
 
 export interface EngineTelemetry {
@@ -179,10 +186,12 @@ export interface UniverseSummary {
   id: number;
   name: string;
   enabled: boolean;
+  protocol: "artNet" | "usbDmx" | "none";
   portAddress: number;
   destination: string;
   interface: string | null;
   broadcast: boolean;
+  devicePath: string | null;
 }
 
 export interface EngineFixtureValues {
@@ -286,11 +295,12 @@ export type ProjectCommand =
   | { type: "updateLayouts"; data: { layouts: LayoutUpdate[] } }
   | { type: "patchFixture"; data: { fixtureId: string; universe: number; address: number } }
   | { type: "addFixture"; data: { name: string; definitionId: string; modeId: string; x: number; y: number } }
+  | { type: "addFixturesAtPatch"; data: { name: string; definitionId: string; modeId: string; quantity: number; universe: number; address: number } }
   | { type: "putCustomFixtureDefinition"; data: CustomFixtureInput & { definitionId: string } }
   | { type: "duplicateFixtures"; data: { fixtureIds: string[] } }
   | { type: "deleteFixtures"; data: { fixtureIds: string[] } }
   | { type: "addUniverse" }
-  | { type: "putUniverseOutput"; data: { universe: number; name: string; enabled: boolean; portAddress: number; destination: string; interface: string | null; broadcast: boolean } }
+  | { type: "putUniverseOutput"; data: { universe: number; name: string; enabled: boolean; protocol: UniverseSummary["protocol"]; portAddress: number; destination: string; interface: string | null; broadcast: boolean; devicePath: string | null } }
   | { type: "putProjectSettings"; data: ProjectSettingsSummary }
   | { type: "putBackground"; data: { name: string; mime: string; bytes: number[] } }
   | { type: "removeBackground" }
@@ -308,4 +318,5 @@ export type ProjectCommand =
   | { type: "putEffect"; data: { effectId: string | null; name: string; template: EffectTemplate; targetParameter: string; amplitude: number; offset: number; speedHz: number; beatMultiplier: number; beatSync: boolean; spatialPhase: number; direction: EffectDirection; blend: EffectBlend; order: EffectOrder } }
   | { type: "deleteEffect"; data: { effectId: string } }
   | { type: "putLiveControl"; data: { controlId: string | null; label: string; sceneId: string | null; effectId: string | null; page: number; position: number } }
+  | { type: "updateLiveControlLayout"; data: { controlId: string; gridX: number; gridY: number; width: number; height: number; color: string; behavior: LiveControlSummary["behavior"] } }
   | { type: "deleteLiveControl"; data: { controlId: string } };

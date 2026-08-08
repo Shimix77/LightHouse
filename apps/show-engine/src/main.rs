@@ -13,8 +13,9 @@ use lighthouse_ipc::{
     ClientMessage, EngineTelemetry, HandshakeResult, HandshakeValidator, IPC_CONTRACT_VERSION,
     ServerMessage, read_message, write_message,
 };
-use lighthouse_output_api::FrameSet;
+use lighthouse_output_api::{FrameSet, OutputFanout};
 use lighthouse_output_artnet::{ART_NET_PORT, ArtNetOutput, ArtNetRoute};
+use lighthouse_output_usb_dmx::OpenDmxOutput;
 use lighthouse_persistence::{DisconnectPolicy, OutputRouteRecord, ProjectStore, RecoveryJournal};
 use lighthouse_show_engine::{DEFAULT_DMX_REFRESH_HZ, DmxOutputLoop};
 
@@ -43,8 +44,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn serve(project_path: &Path, auth_token: String, address: &str) -> Result<(), Box<dyn Error>> {
     let loaded = ProjectStore::load(project_path)?;
-    let mut adapter = ArtNetOutput::bind("0.0.0.0:0")?;
-    configure_artnet_routes(&mut adapter, &loaded.bundle)?;
+    let mut adapter = OutputFanout::new();
+    configure_output_adapters(&mut adapter, &loaded.bundle)?;
     let refresh_hz = loaded.bundle.project.settings.dmx_refresh_hz;
     let disconnect_policy = loaded.bundle.project.settings.disconnect_policy;
     let disconnect_timeout =
@@ -149,6 +150,37 @@ impl ClientWatchdog {
     }
 }
 
+fn configure_output_adapters(
+    fanout: &mut OutputFanout,
+    bundle: &lighthouse_persistence::ProjectBundle,
+) -> Result<(), Box<dyn Error>> {
+    let has_artnet = bundle
+        .project
+        .universes
+        .iter()
+        .filter(|universe| universe.enabled)
+        .flat_map(|universe| &universe.routes)
+        .any(|route| matches!(route, OutputRouteRecord::ArtNet { .. }));
+    if has_artnet {
+        let mut artnet = ArtNetOutput::bind("0.0.0.0:0")?;
+        configure_artnet_routes(&mut artnet, bundle)?;
+        fanout.push(artnet);
+    }
+    for universe in bundle
+        .project
+        .universes
+        .iter()
+        .filter(|universe| universe.enabled)
+    {
+        for route in &universe.routes {
+            if let OutputRouteRecord::UsbDmx { device_path } = route {
+                fanout.push(OpenDmxOutput::open(device_path, universe.id)?);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn configure_artnet_routes(
     adapter: &mut ArtNetOutput,
     bundle: &lighthouse_persistence::ProjectBundle,
@@ -177,6 +209,7 @@ fn configure_artnet_routes(
                         },
                     )?;
                 }
+                OutputRouteRecord::UsbDmx { .. } => {}
             }
         }
     }

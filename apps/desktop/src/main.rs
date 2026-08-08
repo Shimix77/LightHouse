@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use backend::{DesktopBackend, UiBootstrap, UiEngineCommand, UiEngineView, UiProjectCommand};
+use lighthouse_output_usb_dmx::discover_ftdi_ports;
+use serde::Serialize;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
@@ -26,7 +28,8 @@ fn main() {
             open_project,
             open_recent_project,
             save_project_as,
-            open_live_window
+            open_live_window,
+            list_usb_dmx_devices
         ])
         .build(tauri::generate_context!())
         .expect("failed to build LightHouse desktop application");
@@ -40,6 +43,33 @@ fn main() {
             backend.shutdown();
         }
     });
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsbDmxDevice {
+    path: String,
+    name: String,
+    driver: String,
+}
+
+/// Read-only discovery. This never opens the serial port and therefore cannot emit DMX.
+#[tauri::command]
+fn list_usb_dmx_devices() -> Vec<UsbDmxDevice> {
+    discover_ftdi_ports()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|port| UsbDmxDevice {
+            path: port.path,
+            name: port
+                .product
+                .unwrap_or_else(|| "FTDI USB-DMX / Serial Interface".to_owned()),
+            driver: match port.serial_number {
+                Some(serial) => format!("FTDI VCP · {serial}"),
+                None => "FTDI Virtual COM Port".to_owned(),
+            },
+        })
+        .collect()
 }
 
 #[tauri::command]

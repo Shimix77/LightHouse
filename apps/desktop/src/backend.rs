@@ -32,6 +32,7 @@ use lighthouse_ipc::{
     ClientMessage, EngineTelemetry, IPC_CONTRACT_VERSION, ServerMessage, read_message,
     write_message,
 };
+use lighthouse_output_usb_dmx::validate_device_path;
 use lighthouse_persistence::{
     DisconnectPolicy, FixtureRecord, GroupRecord, LayoutObjectKind, LayoutObjectRecord,
     LayoutTransform, LiveControlRecord, OutputRouteRecord, PatchRecord, ProjectBundle,
@@ -269,7 +270,13 @@ impl DesktopBackend {
         command: UiProjectCommand,
     ) -> Result<UiBootstrap, BackendError> {
         let (snapshot, _) = self.request_snapshot_with_restart()?;
-        if snapshot.operation_mode != OperationMode::Edit {
+        let live_layout_edit = matches!(
+            &command,
+            UiProjectCommand::PutLiveControl { .. }
+                | UiProjectCommand::UpdateLiveControlLayout { .. }
+                | UiProjectCommand::DeleteLiveControl { .. }
+        );
+        if snapshot.operation_mode != OperationMode::Edit && !live_layout_edit {
             return Err(BackendError::InvalidCommand(
                 "project structure can only be changed in EDIT mode".into(),
             ));
@@ -419,6 +426,14 @@ pub enum UiProjectCommand {
         x: f64,
         y: f64,
     },
+    AddFixturesAtPatch {
+        name: String,
+        definition_id: String,
+        mode_id: String,
+        quantity: u16,
+        universe: u32,
+        address: u16,
+    },
     PutCustomFixtureDefinition {
         definition_id: String,
         manufacturer: String,
@@ -439,10 +454,12 @@ pub enum UiProjectCommand {
         universe: u32,
         name: String,
         enabled: bool,
+        protocol: String,
         port_address: u16,
         destination: String,
         interface: Option<String>,
         broadcast: bool,
+        device_path: Option<String>,
     },
     PutProjectSettings {
         dmx_refresh_hz: u32,
@@ -524,6 +541,15 @@ pub enum UiProjectCommand {
         effect_id: Option<String>,
         page: u16,
         position: u16,
+    },
+    UpdateLiveControlLayout {
+        control_id: String,
+        grid_x: u16,
+        grid_y: u16,
+        width: u16,
+        height: u16,
+        color: String,
+        behavior: String,
     },
     DeleteLiveControl {
         control_id: String,
@@ -753,10 +779,12 @@ struct UiUniverseView {
     id: u32,
     name: String,
     enabled: bool,
+    protocol: String,
     port_address: u16,
     destination: String,
     interface: Option<String>,
     broadcast: bool,
+    device_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -908,6 +936,12 @@ struct UiLiveControlView {
     effect_id: Option<String>,
     page: u16,
     position: u16,
+    grid_x: u16,
+    grid_y: u16,
+    width: u16,
+    height: u16,
+    color: String,
+    behavior: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1110,6 +1144,12 @@ fn project_view(
             effect_id: control.effect_id.map(|id| id.0.to_string()),
             page: control.page,
             position: control.position,
+            grid_x: control.grid_x.unwrap_or((control.position % 4) * 3),
+            grid_y: control.grid_y.unwrap_or((control.position / 4) * 2),
+            width: control.width.unwrap_or(3),
+            height: control.height.unwrap_or(2),
+            color: control.color.clone().unwrap_or_else(|| "#4b6380".into()),
+            behavior: control.behavior.clone().unwrap_or_else(|| "toggle".into()),
         })
         .collect();
     let mut catalog: BTreeMap<String, &FixtureDefinition> = fixture_library
@@ -1191,33 +1231,48 @@ fn project_view(
             .iter()
             .map(|universe| {
                 let route = universe.routes.first();
-                let (port_address, destination, interface, broadcast) = match route {
-                    Some(OutputRouteRecord::ArtNet {
-                        port_address,
-                        destination,
-                        interface,
-                        broadcast,
-                    }) => (
-                        *port_address,
-                        destination.clone(),
-                        interface.clone(),
-                        *broadcast,
-                    ),
-                    None => (
-                        universe.id.0.saturating_sub(1).min(0x7fff) as u16,
-                        "127.0.0.1:6454".into(),
-                        None,
-                        false,
-                    ),
-                };
+                let (protocol, port_address, destination, interface, broadcast, device_path) =
+                    match route {
+                        Some(OutputRouteRecord::ArtNet {
+                            port_address,
+                            destination,
+                            interface,
+                            broadcast,
+                        }) => (
+                            "artNet".into(),
+                            *port_address,
+                            destination.clone(),
+                            interface.clone(),
+                            *broadcast,
+                            None,
+                        ),
+                        Some(OutputRouteRecord::UsbDmx { device_path }) => (
+                            "usbDmx".into(),
+                            universe.id.0.saturating_sub(1).min(0x7fff) as u16,
+                            "127.0.0.1:6454".into(),
+                            None,
+                            false,
+                            Some(device_path.clone()),
+                        ),
+                        None => (
+                            "none".into(),
+                            universe.id.0.saturating_sub(1).min(0x7fff) as u16,
+                            "127.0.0.1:6454".into(),
+                            None,
+                            false,
+                            None,
+                        ),
+                    };
                 UiUniverseView {
                     id: universe.id.0,
                     name: universe.name.clone(),
                     enabled: universe.enabled,
+                    protocol,
                     port_address,
                     destination,
                     interface,
                     broadcast,
+                    device_path,
                 }
             })
             .collect(),
@@ -1792,6 +1847,103 @@ fn apply_project_command(
             ));
             Ok(true)
         }
+        UiProjectCommand::AddFixturesAtPatch {
+            name,
+            definition_id,
+            mode_id,
+            quantity,
+            universe,
+            address,
+        } => {
+            if !(1..=128).contains(&quantity) {
+                return Err(BackendError::InvalidCommand(
+                    "fixture quantity must be between 1 and 128".into(),
+                ));
+            }
+            let universe_id = UniverseId::new(universe);
+            if !bundle
+                .project
+                .universes
+                .iter()
+                .any(|record| record.id == universe_id)
+            {
+                return Err(BackendError::InvalidCommand(format!(
+                    "universe {universe} does not exist"
+                )));
+            }
+            let definition = bundle
+                .fixture_definitions
+                .iter()
+                .find(|definition| definition.id == definition_id)
+                .ok_or_else(|| {
+                    BackendError::InvalidCommand("fixture definition was not found".into())
+                })?;
+            let mode = definition
+                .modes
+                .iter()
+                .find(|mode| mode.id == mode_id)
+                .ok_or_else(|| BackendError::InvalidCommand("fixture mode was not found".into()))?;
+            let revision = definition.revision.clone();
+            let model = definition.model.clone();
+            let footprint = mode.footprint;
+            let final_channel = u32::from(address)
+                .saturating_add(u32::from(footprint).saturating_mul(u32::from(quantity)))
+                .saturating_sub(1);
+            if address == 0 || final_channel > 512 {
+                return Err(BackendError::InvalidCommand(
+                    "fixture batch does not fit in the selected DMX universe".into(),
+                ));
+            }
+            for index in 0..quantity {
+                let start = address + index * footprint;
+                let end = start + footprint - 1;
+                if let Some(conflict) = bundle.project.patch.iter().find(|record| {
+                    record.universe_id == universe_id
+                        && start < record.start_address + record.footprint
+                        && end >= record.start_address
+                }) {
+                    return Err(BackendError::InvalidCommand(format!(
+                        "DMX address conflict with fixture {} at {}",
+                        conflict.fixture_id.0, conflict.start_address
+                    )));
+                }
+            }
+            let base_name = non_empty_name(name, &model);
+            let center = (f64::from(quantity) - 1.0) / 2.0;
+            for index in 0..quantity {
+                let fixture_id = FixtureId::new(Uuid::new_v4().as_u128());
+                let fixture_name = if quantity == 1 {
+                    base_name.clone()
+                } else {
+                    format!("{} {}", base_name, index + 1)
+                };
+                let start_address = address + index * footprint;
+                bundle.project.fixtures.push(FixtureRecord {
+                    id: fixture_id,
+                    name: fixture_name.clone(),
+                    definition_id: definition_id.clone(),
+                    definition_revision: revision.clone(),
+                    mode_id: mode_id.clone(),
+                    enabled: true,
+                    invert_pan: false,
+                    invert_tilt: false,
+                });
+                bundle.project.patch.push(PatchRecord {
+                    fixture_id,
+                    universe_id,
+                    start_address,
+                    footprint,
+                });
+                bundle.project.layout_objects.push(fixture_layout(
+                    fixture_id,
+                    fixture_name,
+                    (f64::from(index) - center) * 1.2,
+                    0.0,
+                    bundle.project.layout_objects.len() as i32,
+                ));
+            }
+            Ok(true)
+        }
         UiProjectCommand::PutCustomFixtureDefinition {
             definition_id,
             manufacturer,
@@ -1916,42 +2068,82 @@ fn apply_project_command(
             universe,
             name,
             enabled,
+            protocol,
             port_address,
             destination,
             interface,
             broadcast,
+            device_path,
         } => {
-            if universe == 0 || port_address > 0x7fff {
+            if universe == 0 {
                 return Err(BackendError::InvalidCommand(
-                    "universe or Art-Net port-address is outside its valid range".into(),
+                    "universe is outside its valid range".into(),
                 ));
             }
-            let destination = destination.trim();
-            let parsed_destination = destination.parse::<SocketAddr>().map_err(|_| {
-                BackendError::InvalidCommand(
-                    "destination must look like 2.255.255.255:6454 or 192.168.1.50:6454".into(),
-                )
-            })?;
-            if parsed_destination.is_ipv6() {
-                return Err(BackendError::InvalidCommand(
-                    "Art-Net MVP output supports IPv4 destinations only".into(),
-                ));
-            }
-            let interface = interface
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty());
-            if let Some(value) = &interface {
-                let parsed = value.parse::<IpAddr>().map_err(|_| {
-                    BackendError::InvalidCommand(
-                        "network interface must be a local IPv4 address".into(),
-                    )
-                })?;
-                if parsed.is_ipv6() {
+            let route = match protocol.as_str() {
+                "artNet" => {
+                    if port_address > 0x7fff {
+                        return Err(BackendError::InvalidCommand(
+                            "Art-Net port-address is outside its valid range".into(),
+                        ));
+                    }
+                    let destination = destination.trim();
+                    let parsed_destination = destination.parse::<SocketAddr>().map_err(|_| {
+                        BackendError::InvalidCommand(
+                            "destination must look like 2.255.255.255:6454 or 192.168.1.50:6454"
+                                .into(),
+                        )
+                    })?;
+                    if parsed_destination.is_ipv6() {
+                        return Err(BackendError::InvalidCommand(
+                            "Art-Net MVP output supports IPv4 destinations only".into(),
+                        ));
+                    }
+                    let interface = interface
+                        .map(|value| value.trim().to_owned())
+                        .filter(|value| !value.is_empty());
+                    if let Some(value) = &interface {
+                        let parsed = value.parse::<IpAddr>().map_err(|_| {
+                            BackendError::InvalidCommand(
+                                "network interface must be a local IPv4 address".into(),
+                            )
+                        })?;
+                        if parsed.is_ipv6() {
+                            return Err(BackendError::InvalidCommand(
+                                "Art-Net MVP output supports IPv4 interfaces only".into(),
+                            ));
+                        }
+                    }
+                    vec![OutputRouteRecord::ArtNet {
+                        port_address,
+                        destination: destination.into(),
+                        interface,
+                        broadcast,
+                    }]
+                }
+                "usbDmx" => {
+                    let device_path = device_path
+                        .map(|value| value.trim().to_owned())
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            BackendError::InvalidCommand(
+                                "select a detected USB-DMX serial device".into(),
+                            )
+                        })?;
+                    validate_device_path(&device_path).map_err(|_| {
+                        BackendError::InvalidCommand(
+                            "USB-DMX device must be a macOS /dev/cu.* or Windows COM port".into(),
+                        )
+                    })?;
+                    vec![OutputRouteRecord::UsbDmx { device_path }]
+                }
+                "none" => Vec::new(),
+                _ => {
                     return Err(BackendError::InvalidCommand(
-                        "Art-Net MVP output supports IPv4 interfaces only".into(),
+                        "unknown output protocol".into(),
                     ));
                 }
-            }
+            };
             let record = bundle
                 .project
                 .universes
@@ -1961,13 +2153,8 @@ fn apply_project_command(
                     BackendError::InvalidCommand(format!("universe {universe} does not exist"))
                 })?;
             record.name = non_empty_name(name, &format!("Universe {universe}"));
-            record.enabled = enabled;
-            record.routes = vec![OutputRouteRecord::ArtNet {
-                port_address,
-                destination: destination.into(),
-                interface,
-                broadcast,
-            }];
+            record.enabled = enabled && protocol != "none";
+            record.routes = route;
             Ok(true)
         }
         UiProjectCommand::PutProjectSettings {
@@ -2381,6 +2568,12 @@ fn apply_project_command(
                 effect_id,
                 page,
                 position,
+                grid_x: None,
+                grid_y: None,
+                width: None,
+                height: None,
+                color: None,
+                behavior: None,
             };
             if let Some(index) = bundle
                 .project
@@ -2392,6 +2585,48 @@ fn apply_project_command(
             } else {
                 bundle.project.live_controls.push(record);
             }
+            Ok(false)
+        }
+        UiProjectCommand::UpdateLiveControlLayout {
+            control_id,
+            grid_x,
+            grid_y,
+            width,
+            height,
+            color,
+            behavior,
+        } => {
+            if width == 0 || height == 0 || width > 12 || height > 8 || grid_x > 63 || grid_y > 63 {
+                return Err(BackendError::InvalidCommand(
+                    "live control layout is outside the supported grid".into(),
+                ));
+            }
+            if !matches!(behavior.as_str(), "toggle" | "flash" | "push" | "radio") {
+                return Err(BackendError::InvalidCommand(
+                    "live control behavior is invalid".into(),
+                ));
+            }
+            if color.len() != 7
+                || !color.starts_with('#')
+                || !color[1..].chars().all(|value| value.is_ascii_hexdigit())
+            {
+                return Err(BackendError::InvalidCommand(
+                    "live control color must be a hex RGB value".into(),
+                ));
+            }
+            let id = parse_id(&control_id)?;
+            let control = bundle
+                .project
+                .live_controls
+                .iter_mut()
+                .find(|control| control.id == id)
+                .ok_or_else(|| BackendError::InvalidCommand("live control was not found".into()))?;
+            control.grid_x = Some(grid_x);
+            control.grid_y = Some(grid_y);
+            control.width = Some(width);
+            control.height = Some(height);
+            control.color = Some(color);
+            control.behavior = Some(behavior);
             Ok(false)
         }
         UiProjectCommand::DeleteLiveControl { control_id } => {
@@ -2976,6 +3211,12 @@ fn demo_project() -> Result<ProjectBundle, BackendError> {
             effect_id: None,
             page: 1,
             position: index as u16,
+            grid_x: None,
+            grid_y: None,
+            width: None,
+            height: None,
+            color: None,
+            behavior: None,
         })
         .collect();
     bundle.validate()?;
@@ -3202,10 +3443,12 @@ mod tests {
                 universe: 1,
                 name: "Stage Left".into(),
                 enabled: true,
+                protocol: "artNet".into(),
                 port_address: 15,
                 destination: "127.0.0.1:6454".into(),
                 interface: Some("127.0.0.1".into()),
                 broadcast: false,
+                device_path: None,
             },
             None,
         )
@@ -3234,14 +3477,47 @@ mod tests {
                 universe: 1,
                 name: "Main".into(),
                 enabled: true,
+                protocol: "artNet".into(),
                 port_address: 0,
                 destination: "192.168.1.50".into(),
                 interface: Some("Wi-Fi".into()),
                 broadcast: false,
+                device_path: None,
             },
             None,
         );
         assert!(matches!(result, Err(BackendError::InvalidCommand(_))));
+    }
+
+    #[test]
+    fn universe_output_editor_stores_usb_dmx_without_opening_the_device() {
+        let mut bundle = demo_project().unwrap();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutUniverseOutput {
+                universe: 1,
+                name: "DOREMiDi".into(),
+                enabled: false,
+                protocol: "usbDmx".into(),
+                port_address: 0,
+                destination: "127.0.0.1:6454".into(),
+                interface: None,
+                broadcast: false,
+                device_path: Some("/dev/cu.usbserial-AB0KT9HX".into()),
+            },
+            None,
+        )
+        .unwrap();
+
+        assert!(restart);
+        assert!(!bundle.project.universes[0].enabled);
+        assert_eq!(
+            bundle.project.universes[0].routes,
+            vec![OutputRouteRecord::UsbDmx {
+                device_path: "/dev/cu.usbserial-AB0KT9HX".into(),
+            }]
+        );
+        assert!(bundle.validate().is_ok());
     }
 
     #[test]

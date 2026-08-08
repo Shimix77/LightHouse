@@ -1,12 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-import { Inspector } from "./components/Inspector";
+import { FixtureManager } from "./components/FixtureManager";
 import { LiveDisplay } from "./components/LiveDisplay";
-import { ObjectPanel } from "./components/ObjectPanel";
-import { ScenePanel } from "./components/ScenePanel";
-import { StageEditor } from "./components/StageEditor";
-import { StageToolbar } from "./components/StageToolbar";
-import { TopBar } from "./components/TopBar";
+import { ProjectBrowser } from "./components/ProjectBrowser";
+import { ProjectSetup } from "./components/ProjectSetup";
+import { Workspace } from "./components/Workspace";
 import {
   errorMessage,
   getEngineBootstrap,
@@ -17,6 +15,8 @@ import { useShowStore } from "./store/showStore";
 
 export function App() {
   const liveDisplay = new URLSearchParams(window.location.search).get("display") === "live";
+  const requestedScreen = new URLSearchParams(window.location.search).get("screen");
+  const [screen, setScreen] = useState<AppScreen>(requestedScreen === "workspace" ? "workspace" : "projects");
   const undo = useShowStore((state) => state.undo);
   const redo = useShowStore((state) => state.redo);
   const duplicate = useShowStore((state) => state.duplicateSelection);
@@ -27,9 +27,6 @@ export function App() {
   const hydrateEngine = useShowStore((state) => state.hydrateEngine);
   const applyEngineView = useShowStore((state) => state.applyEngineView);
   const setEngineError = useShowStore((state) => state.setEngineError);
-  const engineConnected = useShowStore((state) => state.engineConnected);
-  const engineError = useShowStore((state) => state.engineError);
-  const telemetry = useShowStore((state) => state.engineTelemetry);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -88,27 +85,14 @@ export function App() {
 
   if (liveDisplay) return <LiveDisplay />;
 
-  return (
-    <main className="app-shell">
-      <TopBar />
-      <StageToolbar />
-      <div className="workspace-grid">
-        <ObjectPanel />
-        <StageEditor />
-        <Inspector />
-      </div>
-      <ScenePanel />
-      <footer className="status-bar">
-        <span title={engineError}><i className={`status-dot ${engineConnected ? "is-good" : "is-error"}`} /> {engineConnected ? "Engine connected" : "Engine reconnecting"}</span>
-        <span>{telemetry.framesSent.toLocaleString()} frames sent</span>
-        <span>{telemetry.missedDeadlines} missed deadlines</span>
-        <span>{telemetry.sendErrors} output errors</span>
-        <span className="status-spacer" />
-        <span>⌘Z Undo</span><span>⌘C / ⌘V Copy · Paste</span><span>⇧B Blackout</span>
-      </footer>
-    </main>
-  );
+  if (screen === "projects") return <ProjectBrowser onOpenWorkspace={() => setScreen("workspace")} onStartSetup={() => setScreen("setup")} />;
+  if (screen === "setup") return <ProjectSetup onDone={() => setScreen("workspace")} onCancel={() => setScreen("projects")} />;
+  if (screen === "fixtures") return <FixtureManager onDone={() => setScreen("workspace")} />;
+
+  return <Workspace onShowProjects={() => setScreen("projects")} onShowSetup={() => setScreen("setup")} onManageFixtures={() => setScreen("fixtures")} />;
 }
+
+type AppScreen = "projects" | "setup" | "fixtures" | "workspace";
 
 function isFormField(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;

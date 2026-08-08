@@ -2,6 +2,12 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 import type { EngineBootstrap, EngineCommand, EngineView, ProjectCommand } from "../types/show";
 
+export interface UsbDmxDevice {
+  path: string;
+  name: string;
+  driver: string;
+}
+
 type ViewHandler = (view: EngineView) => void;
 type ErrorHandler = (message: string) => void;
 
@@ -52,6 +58,11 @@ export async function openLiveDisplay(): Promise<void> {
   } else {
     window.open("?display=live", "lighthouse-live-display", "width=1280,height=760");
   }
+}
+
+export async function listUsbDmxDevices(): Promise<UsbDmxDevice[]> {
+  if (!hasNativeEngine()) return [];
+  return invoke<UsbDmxDevice[]>("list_usb_dmx_devices");
 }
 
 export function dispatchEngineCommand(

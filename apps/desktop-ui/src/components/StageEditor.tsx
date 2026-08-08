@@ -24,7 +24,7 @@ interface RectangleState {
   startY: number;
 }
 
-export function StageEditor() {
+export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
@@ -38,10 +38,12 @@ export function StageEditor() {
   const rectangleRef = useRef<RectangleState | null>(null);
   const panRef = useRef<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
   const spacePressedRef = useRef(false);
+  const lastFixturePointerRef = useRef<{ id: string; at: number } | null>(null);
   const [ready, setReady] = useState(false);
   const [zoom, setZoom] = useState(1);
 
   const fixtures = useShowStore((state) => state.fixtures);
+  const stageView = useShowStore((state) => state.stageView);
   const stageObjects = useShowStore((state) => state.stageObjects);
   const selectedIds = useShowStore((state) => state.selectedFixtureIds);
   const selectedStageObjectIds = useShowStore((state) => state.selectedStageObjectIds);
@@ -344,6 +346,14 @@ export function StageEditor() {
       container.cursor = fixtureItem.locked ? "not-allowed" : "move";
       container.on("pointerdown", (event: FederatedPointerEvent) => {
         event.stopPropagation();
+        const now = performance.now();
+        const previous = lastFixturePointerRef.current;
+        if (previous?.id === fixtureItem.id && now - previous.at <= 360) {
+          onFixtureDoubleClick?.();
+          lastFixturePointerRef.current = null;
+        } else {
+          lastFixturePointerRef.current = { id: fixtureItem.id, at: now };
+        }
         const additive = event.shiftKey;
         const currentSelection = useShowStore.getState().selectedFixtureIds;
         if (!currentSelection.includes(fixtureItem.id)) {
@@ -374,7 +384,7 @@ export function StageEditor() {
       fixtureLayerRef.current.addChild(container);
       fixtureContainersRef.current.set(fixtureItem.id, container);
     }
-  }, [captureHistory, fixtures, ready, selectFixtures, selectedSet]);
+  }, [captureHistory, fixtures, onFixtureDoubleClick, ready, selectFixtures, selectedSet]);
 
   const backgroundStyle = background
     ? {
@@ -383,9 +393,9 @@ export function StageEditor() {
     : undefined;
 
   return (
-    <section className="stage-editor" aria-label="2D Stage Editor">
+    <section className={`stage-editor stage-view-${stageView}`} aria-label={`2D Stage Editor · ${stageView} view`}>
       <div className="stage-meta">
-        <span>WORLD</span>
+        <span>{stageView.toUpperCase()} VIEW</span>
         <strong>1 m grid</strong>
         <span>{Math.round(zoom * 100)}%</span>
         <span>{fixtures.length + stageObjects.length} objects</span>

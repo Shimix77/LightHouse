@@ -1,0 +1,207 @@
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, DragEvent } from "react";
+
+import { useShowStore } from "../store/showStore";
+import type { FixtureDefinitionSummary, LayoutFixture } from "../types/show";
+import { CustomFixtureDialog } from "./ObjectPanel";
+
+interface FixtureManagerProps {
+  onDone: () => void;
+  embedded?: boolean;
+}
+
+export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps) {
+  const definitions = useShowStore((state) => state.fixtureDefinitions);
+  const fixtures = useShowStore((state) => state.fixtures);
+  const universes = useShowStore((state) => state.universes);
+  const addUniverse = useShowStore((state) => state.addUniverse);
+  const addFixturesAtPatch = useShowStore((state) => state.addFixturesAtPatch);
+  const [query, setQuery] = useState("");
+  const [manufacturer, setManufacturer] = useState("Generic");
+  const [definitionId, setDefinitionId] = useState("");
+  const [modeId, setModeId] = useState("");
+  const [universe, setUniverse] = useState(1);
+  const [address, setAddress] = useState(1);
+  const [quantity, setQuantity] = useState(1);
+  const [shortName, setShortName] = useState("P");
+  const [customOpen, setCustomOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const normalized = query.trim().toLowerCase();
+  const visibleDefinitions = useMemo(() => definitions.filter((definition) => (
+    !normalized
+    || `${definition.manufacturer} ${definition.model} ${definition.modes.map((mode) => `${mode.name} ${mode.footprint}`).join(" ")}`
+      .toLowerCase().includes(normalized)
+  )), [definitions, normalized]);
+  const manufacturers = useMemo(() => {
+    const values = [...new Set(visibleDefinitions.map((definition) => displayManufacturer(definition)))];
+    return values.sort((left, right) => left.localeCompare(right));
+  }, [visibleDefinitions]);
+
+  useEffect(() => {
+    const firstManufacturer = manufacturers[0];
+    if (firstManufacturer && !manufacturers.includes(manufacturer)) {
+      setManufacturer(firstManufacturer);
+    }
+  }, [manufacturer, manufacturers]);
+
+  const profiles = visibleDefinitions.filter((definition) => displayManufacturer(definition) === manufacturer);
+  const selectedDefinition = definitions.find((definition) => definition.id === definitionId)
+    ?? profiles[0]
+    ?? visibleDefinitions[0];
+  const selectedMode = selectedDefinition?.modes.find((mode) => mode.id === modeId)
+    ?? selectedDefinition?.modes[0];
+
+  useEffect(() => {
+    if (!selectedDefinition) return;
+    if (definitionId !== selectedDefinition.id) setDefinitionId(selectedDefinition.id);
+    if (!selectedDefinition.modes.some((mode) => mode.id === modeId)) {
+      setModeId(selectedDefinition.modes[0]?.id ?? "");
+    }
+  }, [definitionId, modeId, selectedDefinition]);
+
+  const occupied = useMemo(() => buildOccupancy(fixtures, universe), [fixtures, universe]);
+  const footprint = selectedMode?.footprint ?? 1;
+  const previewEnd = address + footprint * quantity - 1;
+  const conflictChannels = new Set<number>();
+  for (let channel = address; channel <= Math.min(512, previewEnd); channel += 1) {
+    if (occupied.has(channel)) conflictChannels.add(channel);
+  }
+  const invalidRange = address < 1 || previewEnd > 512;
+  const hasConflict = conflictChannels.size > 0 || invalidRange;
+
+  const selectProfile = (definition: FixtureDefinitionSummary) => {
+    setDefinitionId(definition.id);
+    setModeId(definition.modes[0]?.id ?? "");
+    setShortName(suggestShortName(definition));
+  };
+
+  const dropAt = (event: DragEvent<HTMLButtonElement>, channel: number) => {
+    event.preventDefault();
+    const dropped = definitions.find((definition) => definition.id === event.dataTransfer.getData("application/x-lighthouse-fixture"));
+    if (dropped) selectProfile(dropped);
+    setAddress(channel);
+  };
+
+  const patch = async () => {
+    if (!selectedDefinition || !selectedMode || hasConflict) return;
+    setAdding(true);
+    setError(undefined);
+    const saved = await addFixturesAtPatch(
+      selectedDefinition.id,
+      selectedMode.id,
+      shortName.trim() || selectedDefinition.model,
+      quantity,
+      universe,
+      address,
+    );
+    setAdding(false);
+    if (!saved) {
+      setError(useShowStore.getState().engineError ?? "The fixture could not be patched.");
+      return;
+    }
+    setAddress(Math.min(512, previewEnd + 1));
+  };
+
+  return (
+    <section className={`fixture-manager-screen ${embedded ? "is-embedded" : ""}`}>
+      {!embedded && <header className="fixture-manager-titlebar"><div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button>⇧</button><button>⇩</button><button>•••</button></div></header>}
+      <div className="fixture-manager-body">
+        <aside className="fixture-library-pane">
+          <div className="fixture-library-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fixture Library" /><button title="Favorites">☆</button><button title="Filters">▽</button><button>•••</button></div>
+          <div className="fixture-library-columns">
+            <div className="manufacturer-column"><header>Manufacturers</header>{manufacturers.map((name) => <button className={name === manufacturer ? "is-selected" : ""} key={name} onClick={() => setManufacturer(name)}>{name}</button>)}</div>
+            <div className="profile-column"><header>Profiles ({manufacturer})</header>{profiles.map((definition) => <button draggable className={definition.id === selectedDefinition?.id ? "is-selected" : ""} key={definition.id} onDragStart={(event) => { event.dataTransfer.setData("application/x-lighthouse-fixture", definition.id); event.dataTransfer.effectAllowed = "copy"; }} onClick={() => selectProfile(definition)} onDoubleClick={() => selectProfile(definition)}><span>{fixtureGlyph(definition)}</span><span><strong>{definition.model}</strong><small>{definition.modes.map((mode) => `${mode.footprint}ch`).join(" · ")}</small></span></button>)}</div>
+          </div>
+          <button className="custom-profile-button" onClick={() => setCustomOpen(true)}>♙ <span><strong>Custom Profiles</strong><small>Create and categorize channels</small></span><b>›</b></button>
+          <footer><span>{definitions.length.toLocaleString()} profiles available</span><button title="Refresh library">↻</button></footer>
+        </aside>
+
+        <section className="patch-pane">
+          <header className="universe-tabs">
+            {universes.map((item) => <button className={universe === item.id ? "is-active" : ""} key={item.id} onClick={() => setUniverse(item.id)}><strong>{item.name}</strong><small>{item.enabled ? "Output configured" : "No output"}</small></button>)}
+            <button className="add-universe-tab" onClick={addUniverse}>＋ Universe</button>
+          </header>
+          <div className="dmx-grid" role="grid" aria-label={`DMX Universe ${universe}`}>
+            {Array.from({ length: 512 }, (_, index) => index + 1).map((channel) => {
+              const used = occupied.get(channel);
+              const preview = channel >= address && channel <= previewEnd;
+              const conflict = preview && (invalidRange || conflictChannels.has(channel));
+              const style = used ? { "--patch-color": used.fixture.color } as CSSProperties : undefined;
+              return <button
+                className={`dmx-cell ${used ? "is-occupied" : ""} ${used?.isStart ? "is-start" : ""} ${preview ? "is-preview" : ""} ${conflict ? "is-conflict" : ""}`}
+                style={style}
+                key={channel}
+                onClick={() => setAddress(channel)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => dropAt(event, channel)}
+                title={used ? `${used.fixture.name} · U${universe}/${used.fixture.address}` : `Channel ${channel}`}
+              ><span>{String(channel).padStart(3, "0")}</span>{used?.isStart && <strong>{used.fixture.name}</strong>}</button>;
+            })}
+          </div>
+
+          <div className={`patch-popover ${hasConflict ? "has-conflict" : ""}`}>
+            <div className="patch-popover-tabs"><button className="is-active">Profile</button><button>Patching</button><button>Channels</button></div>
+            <div className="patch-profile-summary"><span>{fixtureGlyph(selectedDefinition)}</span><div><small>{selectedDefinition?.manufacturer ?? "Select a profile"}</small><strong>{selectedDefinition?.model ?? "No fixture selected"}</strong></div></div>
+            <label><span>Mode</span><select value={selectedMode?.id ?? ""} onChange={(event) => setModeId(event.target.value)}>{selectedDefinition?.modes.map((mode) => <option value={mode.id} key={mode.id}>{mode.name} ({mode.footprint} channels)</option>)}</select></label>
+            <label><span>Quantity</span><input type="number" min={1} max={128} value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(128, Number(event.target.value))))} /></label>
+            <label><span>Short name</span><input value={shortName} onChange={(event) => setShortName(event.target.value)} /></label>
+            <label><span>Start address</span><input type="number" min={1} max={512} value={address} onChange={(event) => setAddress(Number(event.target.value))} /></label>
+            <div className="patch-preview-copy"><span>U{universe} · {address}–{Math.min(512, previewEnd)}</span><small>{footprint * quantity} channels</small></div>
+            {hasConflict && <p>Address conflict — choose a free range.</p>}
+            {error && <p>{error}</p>}
+            <div className="patch-popover-actions"><button onClick={() => setAddress(findFirstFree(occupied, footprint * quantity))}>Find Free</button><button className="primary" disabled={!selectedMode || hasConflict || adding} onClick={() => { void patch(); }}>{adding ? "Patching…" : "Patch"}</button></div>
+          </div>
+          <footer className="patch-footer"><span><b>{occupied.size} occupied</b> · {512 - occupied.size} free channels in Universe {universe}</span>{embedded && <button className="native-done" onClick={onDone}>Continue</button>}</footer>
+        </section>
+      </div>
+      {customOpen && <CustomFixtureDialog onClose={() => setCustomOpen(false)} onCreated={(id) => { const created = useShowStore.getState().fixtureDefinitions.find((definition) => definition.id === id); if (created) selectProfile(created); setCustomOpen(false); }} />}
+    </section>
+  );
+}
+
+function displayManufacturer(definition: FixtureDefinitionSummary): string {
+  return definition.source === "generic" ? "Generic" : definition.manufacturer || "Generic";
+}
+
+function buildOccupancy(fixtures: LayoutFixture[], universe: number) {
+  const map = new Map<number, { fixture: LayoutFixture; isStart: boolean }>();
+  for (const fixture of fixtures) {
+    if (fixture.universe !== universe || fixture.address < 1) continue;
+    for (let channel = fixture.address; channel < fixture.address + fixture.footprint && channel <= 512; channel += 1) {
+      map.set(channel, { fixture, isStart: channel === fixture.address });
+    }
+  }
+  return map;
+}
+
+function findFirstFree(occupied: Map<number, unknown>, footprint: number): number {
+  for (let start = 1; start <= 513 - footprint; start += 1) {
+    let free = true;
+    for (let channel = start; channel < start + footprint; channel += 1) {
+      if (occupied.has(channel)) { free = false; break; }
+    }
+    if (free) return start;
+  }
+  return 1;
+}
+
+function suggestShortName(definition: FixtureDefinitionSummary): string {
+  const model = definition.model.toUpperCase();
+  if (model.includes("MOVING") || model.includes("HEAD")) return "MH";
+  if (model.includes("BLIND")) return "BL";
+  if (model.includes("STROBE")) return "ST";
+  if (model.includes("FOG")) return "FG";
+  return "P";
+}
+
+function fixtureGlyph(definition: FixtureDefinitionSummary | undefined): string {
+  if (!definition) return "◉";
+  const value = definition.model.toLowerCase();
+  if (value.includes("moving") || value.includes("head")) return "♙";
+  if (value.includes("strobe")) return "✳";
+  if (value.includes("fog")) return "☁";
+  if (value.includes("bulb") || value.includes("dimmer")) return "◌";
+  return "◉";
+}
