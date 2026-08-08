@@ -119,6 +119,176 @@ input:focus-visible {
   margin: 12px 0;
 }
 
+.custom-fixture-link,
+.add-custom-channel {
+  width: 100%;
+  height: 32px;
+  border: 1px dashed #3d6170;
+  border-radius: 5px;
+  background: rgba(61, 140, 166, 0.08);
+  color: var(--cyan);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+}
+
+.custom-fixture-dialog {
+  width: min(1040px, calc(100vw - 36px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+}
+
+.custom-fixture-meta {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr 90px;
+  gap: 10px;
+}
+
+.custom-fixture-meta label,
+.custom-channel-row {
+  min-width: 0;
+}
+
+.custom-fixture-meta label {
+  display: grid;
+  gap: 6px;
+}
+
+.custom-fixture-meta span,
+.custom-channel-heading {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.custom-fixture-meta input,
+.custom-channel-row input,
+.custom-channel-row select {
+  min-width: 0;
+  height: 31px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #0c1219;
+  color: var(--text);
+  padding: 0 8px;
+}
+
+.custom-channel-heading,
+.custom-channel-row {
+  display: grid;
+  grid-template-columns: 185px minmax(110px, 1fr) minmax(135px, 1.1fr) 105px 76px 45px 28px;
+  align-items: center;
+  gap: 7px;
+}
+
+.custom-channel-heading {
+  margin: 18px 0 7px;
+  padding: 0 5px;
+}
+
+.custom-channel-list {
+  display: grid;
+  gap: 6px;
+}
+
+.custom-channel-row {
+  padding: 7px;
+  border: 1px solid #293543;
+  border-radius: 6px;
+  background: #111821;
+}
+
+.channel-addresses {
+  display: grid;
+  grid-template-columns: 52px 62px 52px;
+  gap: 5px;
+}
+
+.channel-addresses input,
+.channel-addresses select {
+  width: 100%;
+  padding: 0 4px;
+  font-size: 9px;
+}
+
+.channel-default {
+  display: flex;
+  align-items: center;
+}
+
+.channel-default input {
+  width: 56px;
+  border-radius: 4px 0 0 4px;
+}
+
+.channel-default span {
+  display: grid;
+  width: 20px;
+  height: 31px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 4px 4px 0;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.custom-channel-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  justify-self: center;
+}
+
+.custom-channel-row > button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.add-custom-channel {
+  width: auto;
+  margin-top: 10px;
+  padding: 0 12px;
+}
+
+.custom-fixture-help {
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.custom-fixture-help code {
+  color: #a6dded;
+}
+
+.dialog-error {
+  color: #ff8997 !important;
+}
+
+.parameter-fader {
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(63, 76, 92, 0.48);
+}
+
+.parameter-fader:last-child {
+  border-bottom: 0;
+}
+
+.parameter-fader > small {
+  display: block;
+  margin: 0 0 5px 73px;
+  color: var(--text-muted);
+  font-size: 7px;
+  letter-spacing: 0.06em;
+}
+
 .fixture-dialog > label span {
   color: var(--text-soft);
   font-size: 10px;

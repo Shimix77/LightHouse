@@ -1,4 +1,6 @@
-//! Validated immutable fixture library with embedded generic MVP profiles.
+//! Validated immutable fixture library with embedded generic and OFL profiles.
+
+mod ofl;
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -6,11 +8,14 @@ use std::fmt::{Display, Formatter};
 
 use lighthouse_fixture_model::{FixtureDefinition, FixtureModelError};
 
+pub use ofl::import_ofl_fixture;
+
 const GENERIC_FIXTURE_JSON: &[&str] = &[
     include_str!("../../../assets/generic-fixtures/generic-dimmer.json"),
     include_str!("../../../assets/generic-fixtures/generic-rgbw-par.json"),
     include_str!("../../../assets/generic-fixtures/generic-moving-head-16bit.json"),
 ];
+const OFL_FIXTURE_PACK_JSON: &str = include_str!("../../../assets/ofl/ofl-mvp-pack.json");
 
 #[derive(Clone, Debug, Default)]
 pub struct FixtureLibrary {
@@ -22,6 +27,14 @@ impl FixtureLibrary {
         let mut library = Self::default();
         for json in GENERIC_FIXTURE_JSON {
             let definition: FixtureDefinition = serde_json::from_str(json)?;
+            library.insert(definition)?;
+        }
+        Ok(library)
+    }
+
+    pub fn with_embedded_pack() -> Result<Self, FixtureLibraryError> {
+        let mut library = Self::with_generic_pack()?;
+        for definition in serde_json::from_str::<Vec<FixtureDefinition>>(OFL_FIXTURE_PACK_JSON)? {
             library.insert(definition)?;
         }
         Ok(library)
@@ -47,6 +60,16 @@ impl FixtureLibrary {
 
     pub fn iter(&self) -> impl Iterator<Item = &FixtureDefinition> {
         self.definitions.values()
+    }
+
+    #[must_use]
+    pub fn find_latest(&self, id: &str) -> Option<&FixtureDefinition> {
+        self.definitions
+            .iter()
+            .rev()
+            .find_map(|((definition_id, _), definition)| {
+                (definition_id == id).then_some(definition)
+            })
     }
 
     #[must_use]
@@ -82,6 +105,7 @@ pub enum FixtureLibraryError {
     Json(serde_json::Error),
     InvalidDefinition(FixtureModelError),
     DuplicateRevision { id: String, revision: String },
+    UnsupportedOfl(String),
 }
 
 impl From<serde_json::Error> for FixtureLibraryError {
@@ -105,6 +129,9 @@ impl Display for FixtureLibraryError {
             }
             Self::DuplicateRevision { id, revision } => {
                 write!(formatter, "fixture {id} revision {revision} already exists")
+            }
+            Self::UnsupportedOfl(message) => {
+                write!(formatter, "unsupported OFL fixture: {message}")
             }
         }
     }
@@ -138,6 +165,22 @@ mod tests {
         assert_eq!(
             library.get("generic.rgbw-par", "1").unwrap().manufacturer,
             "LightHouse"
+        );
+    }
+
+    #[test]
+    fn embedded_ofl_pack_is_valid_and_searchable() {
+        let library = FixtureLibrary::with_embedded_pack().unwrap();
+        assert!(library.len() > 500);
+        assert!(
+            library
+                .iter()
+                .any(|definition| definition.id.starts_with("ofl."))
+        );
+        assert!(
+            library
+                .iter()
+                .all(|definition| definition.validate().is_ok())
         );
     }
 }

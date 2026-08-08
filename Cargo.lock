@@ -1665,6 +1665,7 @@ dependencies = [
  "lighthouse-domain",
  "lighthouse-effects",
  "lighthouse-fixture-library",
+ "lighthouse-fixture-model",
  "lighthouse-ipc",
  "lighthouse-persistence",
  "lighthouse-show-engine",
@@ -1709,7 +1710,9 @@ dependencies = [
 name = "lighthouse-fixture-library"
 version = "0.1.0"
 dependencies = [
+ "lighthouse-domain",
  "lighthouse-fixture-model",
+ "serde",
  "serde_json",
 ]
 

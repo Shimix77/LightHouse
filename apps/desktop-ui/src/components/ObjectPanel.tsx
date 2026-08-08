@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useShowStore } from "../store/showStore";
-import type { StageObjectKind } from "../types/show";
+import type { CustomFixtureChannel, StageObjectKind } from "../types/show";
 
 const tabs = ["Fixtures", "Groups", "Objects", "Layers"] as const;
 const objectKinds: { kind: StageObjectKind; label: string; icon: string }[] = [
@@ -16,9 +16,10 @@ const objectKinds: { kind: StageObjectKind; label: string; icon: string }[] = [
 export function ObjectPanel() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("Fixtures");
   const [query, setQuery] = useState("");
-  const [dialog, setDialog] = useState<"fixture" | "group" | "object" | null>(null);
+  const [dialog, setDialog] = useState<"fixture" | "custom-fixture" | "group" | "object" | null>(null);
   const [definitionId, setDefinitionId] = useState("");
   const [modeId, setModeId] = useState("");
+  const [libraryQuery, setLibraryQuery] = useState("");
   const [itemName, setItemName] = useState("");
   const [objectKind, setObjectKind] = useState<StageObjectKind>("truss");
   const fixtures = useShowStore((state) => state.fixtures);
@@ -34,9 +35,13 @@ export function ObjectPanel() {
   const putGroup = useShowStore((state) => state.putGroup);
   const deleteGroup = useShowStore((state) => state.deleteGroup);
   const operationMode = useShowStore((state) => state.mode);
-  const selectedDefinition = fixtureDefinitions.find(
-    (definition) => definition.id === (definitionId || fixtureDefinitions[0]?.id),
+  const normalizedLibraryQuery = libraryQuery.trim().toLowerCase();
+  const visibleDefinitions = fixtureDefinitions.filter((definition) =>
+    `${definition.manufacturer} ${definition.model}`.toLowerCase().includes(normalizedLibraryQuery),
   );
+  const selectedDefinition = visibleDefinitions.find(
+    (definition) => definition.id === definitionId,
+  ) ?? visibleDefinitions[0];
   const selectedMode = selectedDefinition?.modes.find(
     (mode) => mode.id === (modeId || selectedDefinition.modes[0]?.id),
   );
@@ -160,11 +165,27 @@ export function ObjectPanel() {
           addFixture(selectedDefinition.id, selectedMode.id, itemName || selectedDefinition.model);
           setDialog(null); setItemName("");
         }} submitLabel="Add & Auto-patch">
-          <label><span>Fixture type</span><select value={selectedDefinition?.id ?? ""} onChange={(event) => { setDefinitionId(event.target.value); setModeId(""); }}>{fixtureDefinitions.map((definition) => <option key={definition.id} value={definition.id}>{definition.manufacturer} · {definition.model}</option>)}</select></label>
+          <label><span>Search {fixtureDefinitions.length} offline profiles</span><input autoFocus value={libraryQuery} onChange={(event) => { setLibraryQuery(event.target.value); setDefinitionId(""); setModeId(""); }} placeholder="Manufacturer or model…" /></label>
+          <label><span>Fixture type</span><select value={selectedDefinition?.id ?? ""} onChange={(event) => { setDefinitionId(event.target.value); setModeId(""); }}>{visibleDefinitions.map((definition) => <option key={definition.id} value={definition.id}>[{definition.source.toUpperCase()}] {definition.manufacturer} · {definition.model}</option>)}</select></label>
           <label><span>DMX mode</span><select value={selectedMode?.id ?? ""} onChange={(event) => setModeId(event.target.value)}>{selectedDefinition?.modes.map((mode) => <option key={mode.id} value={mode.id}>{mode.name} · {mode.footprint} ch</option>)}</select></label>
           <label><span>Name</span><input value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder={selectedDefinition?.model ?? "Fixture name"} /></label>
-          <p>LightHouse finds the next free DMX address and creates another universe when needed.</p>
+          {visibleDefinitions.length === 0
+            ? <p>No matching profile. Create a custom fixture and define what each DMX channel does.</p>
+            : <p>{selectedDefinition?.source === "ofl" ? "Open Fixture Library offline profile." : "LightHouse fixture profile."} Auto-patch finds the next free DMX address.</p>}
+          <button className="custom-fixture-link" type="button" onClick={() => setDialog("custom-fixture")}>＋ CREATE CUSTOM FIXTURE</button>
         </Dialog>
+      )}
+
+      {dialog === "custom-fixture" && (
+        <CustomFixtureDialog
+          onClose={() => setDialog("fixture")}
+          onCreated={(id) => {
+            setLibraryQuery("");
+            setDefinitionId(id);
+            setModeId("");
+            setDialog("fixture");
+          }}
+        />
       )}
 
       {dialog === "group" && (
@@ -183,6 +204,100 @@ export function ObjectPanel() {
       )}
     </aside>
   );
+}
+
+function CustomFixtureDialog({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (definitionId: string) => void;
+}) {
+  const putCustomFixture = useShowStore((state) => state.putCustomFixture);
+  const [manufacturer, setManufacturer] = useState("Custom");
+  const [model, setModel] = useState("");
+  const [modeName, setModeName] = useState("Standard");
+  const [footprint, setFootprint] = useState(1);
+  const [channels, setChannels] = useState<CustomFixtureChannel[]>([
+    customChannel(1, "Intensity", "intensity", "intensity"),
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const updateChannel = (index: number, update: Partial<CustomFixtureChannel>) => {
+    setChannels((current) => current.map((channel, channelIndex) =>
+      channelIndex === index ? { ...channel, ...update } : channel));
+  };
+  const submit = async () => {
+    setSaving(true);
+    setError(undefined);
+    const definitionId = await putCustomFixture({
+      manufacturer,
+      model,
+      modeId: slug(modeName) || "custom-mode",
+      modeName,
+      footprint,
+      channels,
+    });
+    setSaving(false);
+    if (definitionId) onCreated(definitionId);
+    else setError("The fixture definition is invalid. Check channel numbers and duplicate parameters.");
+  };
+
+  return (
+    <div className="fixture-dialog-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="fixture-dialog custom-fixture-dialog" aria-label="Create Custom Fixture" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <header><div><small>CUSTOM FIXTURE</small><h2>Define DMX channels</h2></div><button type="button" onClick={onClose}>×</button></header>
+        <div className="custom-fixture-meta">
+          <label><span>Manufacturer</span><input value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} /></label>
+          <label><span>Model</span><input autoFocus required value={model} onChange={(event) => setModel(event.target.value)} placeholder="My RGB PAR" /></label>
+          <label><span>Mode</span><input required value={modeName} onChange={(event) => setModeName(event.target.value)} /></label>
+          <label><span>Footprint</span><input required type="number" min={1} max={512} value={footprint} onChange={(event) => setFootprint(Number(event.target.value))} /></label>
+        </div>
+        <div className="custom-channel-heading"><span>DMX</span><span>Function</span><span>Logical parameter</span><span>Type</span><span>Default</span><span>Invert</span><span /></div>
+        <div className="custom-channel-list">
+          {channels.map((channel, index) => (
+            <div className="custom-channel-row" key={index}>
+              <div className="channel-addresses">
+                <input aria-label={`Coarse channel ${index + 1}`} type="number" min={1} max={512} value={channel.coarseChannel} onChange={(event) => updateChannel(index, { coarseChannel: Number(event.target.value) })} />
+                <select aria-label={`Resolution ${index + 1}`} value={channel.fineChannel === null ? "8" : "16"} onChange={(event) => updateChannel(index, { fineChannel: event.target.value === "16" ? channel.coarseChannel + 1 : null })}><option value="8">8-bit</option><option value="16">16-bit</option></select>
+                {channel.fineChannel !== null && <input aria-label={`Fine channel ${index + 1}`} title="Fine channel" type="number" min={1} max={512} value={channel.fineChannel} onChange={(event) => updateChannel(index, { fineChannel: Number(event.target.value) })} />}
+              </div>
+              <input aria-label={`Function name ${index + 1}`} required value={channel.name} onChange={(event) => updateChannel(index, { name: event.target.value })} placeholder="Dimmer" />
+              <input aria-label={`Parameter ID ${index + 1}`} required value={channel.parameterId} onChange={(event) => updateChannel(index, { parameterId: event.target.value })} placeholder="intensity" />
+              <select aria-label={`Capability ${index + 1}`} value={channel.capability} onChange={(event) => updateChannel(index, { capability: event.target.value as CustomFixtureChannel["capability"] })}>
+                <option value="intensity">Intensity</option><option value="color">Color</option><option value="position">Position</option><option value="beam">Beam</option><option value="shutter">Shutter</option><option value="gobo">Gobo</option><option value="custom">Custom</option>
+              </select>
+              <label className="channel-default"><input aria-label={`Default percent ${index + 1}`} type="number" min={0} max={100} value={Math.round(channel.defaultValue * 100)} onChange={(event) => updateChannel(index, { defaultValue: Number(event.target.value) / 100 })} /><span>%</span></label>
+              <input aria-label={`Invert ${index + 1}`} type="checkbox" checked={channel.invert} onChange={(event) => updateChannel(index, { invert: event.target.checked })} />
+              <button type="button" aria-label={`Delete channel ${index + 1}`} disabled={channels.length === 1} onClick={() => setChannels((current) => current.filter((_, channelIndex) => channelIndex !== index))}>×</button>
+            </div>
+          ))}
+        </div>
+        <button className="add-custom-channel" type="button" onClick={() => {
+          const next = Math.min(512, Math.max(0, ...channels.flatMap((channel) => [channel.coarseChannel, channel.fineChannel ?? 0])) + 1);
+          setChannels((current) => [...current, customChannel(next, `Channel ${next}`, `custom.channel-${next}`, "custom")]);
+          setFootprint((current) => Math.max(current, next));
+        }}>＋ ADD CHANNEL</button>
+        <p className="custom-fixture-help">Map common controls to <code>intensity</code>, <code>color.red</code>, <code>color.green</code>, <code>color.blue</code>, <code>position.pan</code>, <code>position.tilt</code> or <code>beam.zoom</code>. Channel numbers are one-based.</p>
+        {error && <p className="dialog-error">{error}</p>}
+        <footer><button type="button" onClick={onClose}>Back</button><button className="primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save Fixture"}</button></footer>
+      </form>
+    </div>
+  );
+}
+
+function customChannel(
+  coarseChannel: number,
+  name: string,
+  parameterId: string,
+  capability: CustomFixtureChannel["capability"],
+): CustomFixtureChannel {
+  return { name, parameterId, capability, coarseChannel, fineChannel: null, defaultValue: 0, invert: false };
+}
+
+function slug(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 function EmptyCollection({ icon, label, hint }: { icon: string; label: string; hint: string }) {
