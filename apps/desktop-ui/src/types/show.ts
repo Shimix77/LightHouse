@@ -167,6 +167,16 @@ export interface EngineTelemetry {
   droppedJournalEntries: number;
 }
 
+export interface UniverseSummary {
+  id: number;
+  name: string;
+  enabled: boolean;
+  portAddress: number;
+  destination: string;
+  interface: string | null;
+  broadcast: boolean;
+}
+
 export interface EngineFixtureValues {
   fixtureId: string;
   parameters: Record<string, number>;
@@ -207,6 +217,7 @@ export interface ProjectView {
   liveControls: LiveControlSummary[];
   fixtureDefinitions: FixtureDefinitionSummary[];
   background: StageBackground | null;
+  universes: UniverseSummary[];
   universeCount: number;
 }
 
@@ -270,6 +281,7 @@ export type ProjectCommand =
   | { type: "duplicateFixtures"; data: { fixtureIds: string[] } }
   | { type: "deleteFixtures"; data: { fixtureIds: string[] } }
   | { type: "addUniverse" }
+  | { type: "putUniverseOutput"; data: { universe: number; name: string; enabled: boolean; portAddress: number; destination: string; interface: string | null; broadcast: boolean } }
   | { type: "putBackground"; data: { name: string; mime: string; bytes: number[] } }
   | { type: "removeBackground" }
   | { type: "addStageObject"; data: { kind: StageObjectKind; name: string; x: number; y: number } }

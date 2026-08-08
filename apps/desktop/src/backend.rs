@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::sync::mpsc;
@@ -428,6 +428,15 @@ pub enum UiProjectCommand {
         fixture_ids: Vec<String>,
     },
     AddUniverse,
+    PutUniverseOutput {
+        universe: u32,
+        name: String,
+        enabled: bool,
+        port_address: u16,
+        destination: String,
+        interface: Option<String>,
+        broadcast: bool,
+    },
     PutBackground {
         name: String,
         mime: String,
@@ -713,7 +722,20 @@ struct UiProjectView {
     live_controls: Vec<UiLiveControlView>,
     fixture_definitions: Vec<UiFixtureDefinitionView>,
     background: Option<UiBackgroundView>,
+    universes: Vec<UiUniverseView>,
     universe_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiUniverseView {
+    id: u32,
+    name: String,
+    enabled: bool,
+    port_address: u16,
+    destination: String,
+    interface: Option<String>,
+    broadcast: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1142,6 +1164,42 @@ fn project_view(
         live_controls,
         fixture_definitions,
         background: background_view(bundle),
+        universes: bundle
+            .project
+            .universes
+            .iter()
+            .map(|universe| {
+                let route = universe.routes.first();
+                let (port_address, destination, interface, broadcast) = match route {
+                    Some(OutputRouteRecord::ArtNet {
+                        port_address,
+                        destination,
+                        interface,
+                        broadcast,
+                    }) => (
+                        *port_address,
+                        destination.clone(),
+                        interface.clone(),
+                        *broadcast,
+                    ),
+                    None => (
+                        universe.id.0.saturating_sub(1).min(0x7fff) as u16,
+                        "127.0.0.1:6454".into(),
+                        None,
+                        false,
+                    ),
+                };
+                UiUniverseView {
+                    id: universe.id.0,
+                    name: universe.name.clone(),
+                    enabled: universe.enabled,
+                    port_address,
+                    destination,
+                    interface,
+                    broadcast,
+                }
+            })
+            .collect(),
         universe_count: bundle.project.universes.len(),
     }
 }
@@ -1823,7 +1881,65 @@ fn apply_project_command(
         }
         UiProjectCommand::AddUniverse => {
             add_universe(bundle);
-            Ok(false)
+            Ok(true)
+        }
+        UiProjectCommand::PutUniverseOutput {
+            universe,
+            name,
+            enabled,
+            port_address,
+            destination,
+            interface,
+            broadcast,
+        } => {
+            if universe == 0 || port_address > 0x7fff {
+                return Err(BackendError::InvalidCommand(
+                    "universe or Art-Net port-address is outside its valid range".into(),
+                ));
+            }
+            let destination = destination.trim();
+            let parsed_destination = destination.parse::<SocketAddr>().map_err(|_| {
+                BackendError::InvalidCommand(
+                    "destination must look like 2.255.255.255:6454 or 192.168.1.50:6454".into(),
+                )
+            })?;
+            if parsed_destination.is_ipv6() {
+                return Err(BackendError::InvalidCommand(
+                    "Art-Net MVP output supports IPv4 destinations only".into(),
+                ));
+            }
+            let interface = interface
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty());
+            if let Some(value) = &interface {
+                let parsed = value.parse::<IpAddr>().map_err(|_| {
+                    BackendError::InvalidCommand(
+                        "network interface must be a local IPv4 address".into(),
+                    )
+                })?;
+                if parsed.is_ipv6() {
+                    return Err(BackendError::InvalidCommand(
+                        "Art-Net MVP output supports IPv4 interfaces only".into(),
+                    ));
+                }
+            }
+            let record = bundle
+                .project
+                .universes
+                .iter_mut()
+                .find(|record| record.id == UniverseId::new(universe))
+                .ok_or_else(|| {
+                    BackendError::InvalidCommand(format!("universe {universe} does not exist"))
+                })?;
+            record.name = non_empty_name(name, &format!("Universe {universe}"));
+            record.enabled = enabled;
+            record.routes = vec![OutputRouteRecord::ArtNet {
+                port_address,
+                destination: destination.into(),
+                interface,
+                broadcast,
+            }];
+            Ok(true)
         }
         UiProjectCommand::AddStageObject { kind, name, x, y } => {
             if !x.is_finite() || !y.is_finite() {
@@ -2596,7 +2712,12 @@ fn add_universe(bundle: &mut ProjectBundle) -> UniverseId {
         id,
         name: format!("Universe {next}"),
         enabled: true,
-        routes: Vec::new(),
+        routes: vec![OutputRouteRecord::ArtNet {
+            port_address: next.saturating_sub(1).min(0x7fff) as u16,
+            destination: "127.0.0.1:6454".into(),
+            interface: None,
+            broadcast: false,
+        }],
     });
     id
 }
@@ -3006,6 +3127,57 @@ mod tests {
         assert_eq!(bundle.project.scenes.len(), 4);
         assert_eq!(bundle.project.effects.len(), 4);
         assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn universe_output_editor_persists_a_validated_artnet_route() {
+        let mut bundle = demo_project().unwrap();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutUniverseOutput {
+                universe: 1,
+                name: "Stage Left".into(),
+                enabled: true,
+                port_address: 15,
+                destination: "127.0.0.1:6454".into(),
+                interface: Some("127.0.0.1".into()),
+                broadcast: false,
+            },
+            None,
+        )
+        .unwrap();
+
+        assert!(restart);
+        assert_eq!(bundle.project.universes[0].name, "Stage Left");
+        assert_eq!(
+            bundle.project.universes[0].routes,
+            vec![OutputRouteRecord::ArtNet {
+                port_address: 15,
+                destination: "127.0.0.1:6454".into(),
+                interface: Some("127.0.0.1".into()),
+                broadcast: false,
+            }]
+        );
+        assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn universe_output_editor_rejects_invalid_network_values() {
+        let mut bundle = demo_project().unwrap();
+        let result = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutUniverseOutput {
+                universe: 1,
+                name: "Main".into(),
+                enabled: true,
+                port_address: 0,
+                destination: "192.168.1.50".into(),
+                interface: Some("Wi-Fi".into()),
+                broadcast: false,
+            },
+            None,
+        );
+        assert!(matches!(result, Err(BackendError::InvalidCommand(_))));
     }
 
     #[test]

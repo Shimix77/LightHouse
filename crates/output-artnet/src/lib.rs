@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 use lighthouse_domain::UniverseId;
 use lighthouse_output_api::{DMX_SLOT_COUNT, DmxFrame, FrameSet, OutputAdapter};
@@ -19,10 +19,13 @@ const ART_NET_ID: &[u8; 8] = b"Art-Net\0";
 pub struct ArtNetRoute {
     pub port_address: u16,
     pub destination: SocketAddr,
+    pub interface: Option<IpAddr>,
+    pub broadcast: bool,
 }
 
 pub struct ArtNetOutput {
     socket: UdpSocket,
+    interface_sockets: BTreeMap<IpAddr, UdpSocket>,
     routes: BTreeMap<UniverseId, ArtNetRoute>,
     sequence: u8,
 }
@@ -31,16 +34,43 @@ impl ArtNetOutput {
     pub fn bind(address: impl ToSocketAddrs) -> io::Result<Self> {
         let socket = UdpSocket::bind(address)?;
         socket.set_nonblocking(true)?;
-        socket.set_broadcast(true)?;
         Ok(Self {
             socket,
+            interface_sockets: BTreeMap::new(),
             routes: BTreeMap::new(),
             sequence: 1,
         })
     }
 
-    pub fn set_route(&mut self, universe_id: UniverseId, route: ArtNetRoute) {
+    pub fn set_route(&mut self, universe_id: UniverseId, route: ArtNetRoute) -> io::Result<()> {
+        if route.port_address > 0x7fff {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Art-Net port-address exceeds 15 bits",
+            ));
+        }
+        if route.destination.is_ipv6() || route.interface.is_some_and(|value| value.is_ipv6()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Art-Net MVP output supports IPv4 addresses only",
+            ));
+        }
+        if let Some(interface) = route.interface
+            && !self.interface_sockets.contains_key(&interface)
+        {
+            let socket = UdpSocket::bind(SocketAddr::new(interface, 0))?;
+            socket.set_nonblocking(true)?;
+            socket.set_broadcast(route.broadcast)?;
+            self.interface_sockets.insert(interface, socket);
+        }
+        if route.broadcast {
+            match route.interface {
+                Some(interface) => self.interface_sockets[&interface].set_broadcast(true)?,
+                None => self.socket.set_broadcast(true)?,
+            }
+        }
         self.routes.insert(universe_id, route);
+        Ok(())
     }
 
     fn next_sequence(&mut self) -> u8 {
@@ -59,7 +89,11 @@ impl OutputAdapter for ArtNetOutput {
             };
             let packet = encode_art_dmx(frame, route.port_address, sequence)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-            match self.socket.send_to(&packet, route.destination) {
+            let socket = route
+                .interface
+                .and_then(|interface| self.interface_sockets.get(&interface))
+                .unwrap_or(&self.socket);
+            match socket.send_to(&packet, route.destination) {
                 Ok(_) => {}
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(error) => return Err(error),
@@ -181,5 +215,39 @@ mod tests {
             encode_art_dmx(&frame, 0x8000, 1),
             Err(ArtNetError::InvalidPortAddress(0x8000))
         );
+    }
+
+    #[test]
+    fn sends_a_frame_to_a_virtual_artnet_receiver() {
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut output = ArtNetOutput::bind("127.0.0.1:0").unwrap();
+        output
+            .set_route(
+                UniverseId::new(7),
+                ArtNetRoute {
+                    port_address: 6,
+                    destination: receiver.local_addr().unwrap(),
+                    interface: Some("127.0.0.1".parse().unwrap()),
+                    broadcast: false,
+                },
+            )
+            .unwrap();
+        let mut frames = FrameSet::default();
+        frames
+            .frame_mut(UniverseId::new(7))
+            .set_slot(1, 203, true)
+            .unwrap();
+
+        output.send(&frames).unwrap();
+
+        let mut buffer = [0_u8; 600];
+        let (length, source) = receiver.recv_from(&mut buffer).unwrap();
+        let parsed = parse_art_dmx(&buffer[..length]).unwrap();
+        assert_eq!(source.ip(), "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(parsed.port_address, 6);
+        assert_eq!(parsed.data[0], 203);
     }
 }

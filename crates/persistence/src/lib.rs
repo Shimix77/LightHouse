@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -296,6 +297,65 @@ impl ProjectBundle {
             .iter()
             .map(|universe| universe.id)
             .collect();
+        if universe_ids.len() != self.project.universes.len() {
+            return Err(PersistenceError::InvalidProject(
+                "universe IDs must be unique".into(),
+            ));
+        }
+        for universe in &self.project.universes {
+            if universe.id.0 == 0 || universe.name.trim().is_empty() {
+                return Err(PersistenceError::InvalidProject(
+                    "universe ID must be positive and its name cannot be empty".into(),
+                ));
+            }
+            if universe.routes.len() > 1 {
+                return Err(PersistenceError::InvalidProject(format!(
+                    "universe {} has more than one output route",
+                    universe.id.0
+                )));
+            }
+            for route in &universe.routes {
+                match route {
+                    OutputRouteRecord::ArtNet {
+                        port_address,
+                        destination,
+                        interface,
+                        ..
+                    } => {
+                        if *port_address > 0x7fff {
+                            return Err(PersistenceError::InvalidProject(format!(
+                                "universe {} has an invalid Art-Net port-address",
+                                universe.id.0
+                            )));
+                        }
+                        let destination = destination.parse::<SocketAddr>().map_err(|_| {
+                            PersistenceError::InvalidProject(format!(
+                                "universe {} has an invalid Art-Net destination",
+                                universe.id.0
+                            ))
+                        })?;
+                        if destination.is_ipv6() {
+                            return Err(PersistenceError::InvalidProject(
+                                "Art-Net MVP output supports IPv4 destinations only".into(),
+                            ));
+                        }
+                        if let Some(interface) = interface {
+                            let interface = interface.parse::<IpAddr>().map_err(|_| {
+                                PersistenceError::InvalidProject(format!(
+                                    "universe {} has an invalid output interface",
+                                    universe.id.0
+                                ))
+                            })?;
+                            if interface.is_ipv6() {
+                                return Err(PersistenceError::InvalidProject(
+                                    "Art-Net MVP output supports IPv4 interfaces only".into(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let mut patch_table = PatchTable::default();
         for record in &self.project.patch {
             if !fixture_ids.contains(&record.fixture_id)
@@ -908,6 +968,29 @@ mod tests {
             bundle.validate(),
             Err(PersistenceError::InvalidProject(_))
         ));
+    }
+
+    #[test]
+    fn validation_rejects_invalid_artnet_routes_before_saving() {
+        let mut bundle = sample_bundle();
+        bundle.project.universes[0].routes = vec![OutputRouteRecord::ArtNet {
+            port_address: 0x8000,
+            destination: "lighting-node-without-a-port".into(),
+            interface: Some("not-an-ip".into()),
+            broadcast: true,
+        }];
+        assert!(matches!(
+            bundle.validate(),
+            Err(PersistenceError::InvalidProject(_))
+        ));
+
+        bundle.project.universes[0].routes = vec![OutputRouteRecord::ArtNet {
+            port_address: 0,
+            destination: "127.0.0.1:6454".into(),
+            interface: Some("127.0.0.1".into()),
+            broadcast: false,
+        }];
+        assert!(bundle.validate().is_ok());
     }
 
     #[test]

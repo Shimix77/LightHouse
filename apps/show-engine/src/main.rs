@@ -104,15 +104,18 @@ fn configure_artnet_routes(
                 OutputRouteRecord::ArtNet {
                     port_address,
                     destination,
-                    ..
+                    interface,
+                    broadcast,
                 } => {
                     adapter.set_route(
                         universe.id,
                         ArtNetRoute {
                             port_address: *port_address,
                             destination: destination.parse()?,
+                            interface: interface.as_deref().map(str::parse).transpose()?,
+                            broadcast: *broadcast,
                         },
-                    );
+                    )?;
                 }
             }
         }
@@ -212,8 +215,10 @@ fn demo_artnet(destination: SocketAddr) -> Result<(), Box<dyn Error>> {
         ArtNetRoute {
             port_address: 0,
             destination,
+            interface: None,
+            broadcast: false,
         },
-    );
+    )?;
 
     let output = DmxOutputLoop::start(adapter, DEFAULT_DMX_REFRESH_HZ)?;
     let mut frames = FrameSet::default();
