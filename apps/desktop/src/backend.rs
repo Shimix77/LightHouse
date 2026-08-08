@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
@@ -32,8 +33,9 @@ use lighthouse_ipc::{
     write_message,
 };
 use lighthouse_persistence::{
-    FixtureRecord, GroupRecord, LayoutObjectKind, LayoutObjectRecord, LayoutTransform,
-    LiveControlRecord, OutputRouteRecord, PatchRecord, ProjectBundle, ProjectStore, UniverseRecord,
+    DisconnectPolicy, FixtureRecord, GroupRecord, LayoutObjectKind, LayoutObjectRecord,
+    LayoutTransform, LiveControlRecord, OutputRouteRecord, PatchRecord, ProjectBundle,
+    ProjectStore, RecoveryJournal, UniverseRecord,
 };
 use lighthouse_show_engine::ShowSnapshot;
 use serde::{Deserialize, Serialize};
@@ -175,18 +177,11 @@ impl DesktopBackend {
         recovery_notice: Option<String>,
     ) -> Result<UiBootstrap, BackendError> {
         bundle.validate()?;
-        let previous_path = self.project_path.clone();
-        self.session.shutdown()?;
-        let next_session = match EngineSession::spawn(&self.app_data_dir, &path) {
-            Ok(session) => session,
-            Err(error) => {
-                self.session = EngineSession::spawn(&self.app_data_dir, &previous_path)?;
-                return Err(error);
-            }
-        };
+        let next_session = EngineSession::spawn(&self.app_data_dir, &path)?;
+        let mut previous_session = std::mem::replace(&mut self.session, next_session);
+        let _ = previous_session.shutdown();
         self.project_path = path;
         self.bundle = bundle;
-        self.session = next_session;
         self.next_sequence = 1;
         self.recovery_notice = recovery_notice;
         self.record_recent_project()?;
@@ -293,6 +288,7 @@ impl DesktopBackend {
         let restart_required = apply_project_command(&mut next, command, Some(&snapshot))?;
         next.validate()?;
         ProjectStore::save_atomic(&self.project_path, &next)?;
+        RecoveryJournal::new(engine_recovery_path(&self.project_path)).truncate()?;
         self.bundle = next;
         if restart_required {
             self.restart_engine()?;
@@ -313,9 +309,16 @@ impl DesktopBackend {
     }
 
     fn restart_engine(&mut self) -> Result<(), BackendError> {
-        let _ = self.session.shutdown();
-        self.session = EngineSession::spawn(&self.app_data_dir, &self.project_path)?;
+        let next_session = EngineSession::spawn(&self.app_data_dir, &self.project_path)?;
+        let mut previous_session = std::mem::replace(&mut self.session, next_session);
+        let _ = previous_session.shutdown();
         Ok(())
+    }
+}
+
+impl Drop for DesktopBackend {
+    fn drop(&mut self) {
+        let _ = self.session.shutdown();
     }
 }
 
@@ -436,6 +439,11 @@ pub enum UiProjectCommand {
         destination: String,
         interface: Option<String>,
         broadcast: bool,
+    },
+    PutProjectSettings {
+        dmx_refresh_hz: u32,
+        disconnect_policy: String,
+        disconnect_timeout_ms: u64,
     },
     PutBackground {
         name: String,
@@ -723,7 +731,16 @@ struct UiProjectView {
     fixture_definitions: Vec<UiFixtureDefinitionView>,
     background: Option<UiBackgroundView>,
     universes: Vec<UiUniverseView>,
+    settings: UiProjectSettingsView,
     universe_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiProjectSettingsView {
+    dmx_refresh_hz: u32,
+    disconnect_policy: &'static str,
+    disconnect_timeout_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1200,6 +1217,14 @@ fn project_view(
                 }
             })
             .collect(),
+        settings: UiProjectSettingsView {
+            dmx_refresh_hz: bundle.project.settings.dmx_refresh_hz,
+            disconnect_policy: match bundle.project.settings.disconnect_policy {
+                DisconnectPolicy::HoldLastLook => "holdLastLook",
+                DisconnectPolicy::BlackoutAfterTimeout => "blackoutAfterTimeout",
+            },
+            disconnect_timeout_ms: bundle.project.settings.disconnect_timeout_ms,
+        },
         universe_count: bundle.project.universes.len(),
     }
 }
@@ -1939,6 +1964,35 @@ fn apply_project_command(
                 interface,
                 broadcast,
             }];
+            Ok(true)
+        }
+        UiProjectCommand::PutProjectSettings {
+            dmx_refresh_hz,
+            disconnect_policy,
+            disconnect_timeout_ms,
+        } => {
+            if !(30..=44).contains(&dmx_refresh_hz) {
+                return Err(BackendError::InvalidCommand(
+                    "DMX refresh rate must be between 30 and 44 Hz".into(),
+                ));
+            }
+            if !(1_000..=300_000).contains(&disconnect_timeout_ms) {
+                return Err(BackendError::InvalidCommand(
+                    "disconnect timeout must be between 1 and 300 seconds".into(),
+                ));
+            }
+            let disconnect_policy = match disconnect_policy.as_str() {
+                "holdLastLook" => DisconnectPolicy::HoldLastLook,
+                "blackoutAfterTimeout" => DisconnectPolicy::BlackoutAfterTimeout,
+                _ => {
+                    return Err(BackendError::InvalidCommand(
+                        "unknown UI disconnect policy".into(),
+                    ));
+                }
+            };
+            bundle.project.settings.dmx_refresh_hz = dmx_refresh_hz;
+            bundle.project.settings.disconnect_policy = disconnect_policy;
+            bundle.project.settings.disconnect_timeout_ms = disconnect_timeout_ms;
             Ok(true)
         }
         UiProjectCommand::AddStageObject { kind, name, x, y } => {
@@ -2722,6 +2776,12 @@ fn add_universe(bundle: &mut ProjectBundle) -> UniverseId {
     id
 }
 
+fn engine_recovery_path(project_path: &Path) -> PathBuf {
+    let mut value: OsString = project_path.as_os_str().to_owned();
+    value.push(".recovery.jsonl");
+    PathBuf::from(value)
+}
+
 fn parse_id(value: &str) -> Result<u128, BackendError> {
     value
         .parse()
@@ -3178,6 +3238,40 @@ mod tests {
             None,
         );
         assert!(matches!(result, Err(BackendError::InvalidCommand(_))));
+    }
+
+    #[test]
+    fn project_safety_settings_are_validated_and_require_engine_restart() {
+        let mut bundle = demo_project().unwrap();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutProjectSettings {
+                dmx_refresh_hz: 40,
+                disconnect_policy: "blackoutAfterTimeout".into(),
+                disconnect_timeout_ms: 5_000,
+            },
+            None,
+        )
+        .unwrap();
+        assert!(restart);
+        assert_eq!(bundle.project.settings.dmx_refresh_hz, 40);
+        assert_eq!(
+            bundle.project.settings.disconnect_policy,
+            DisconnectPolicy::BlackoutAfterTimeout
+        );
+
+        assert!(matches!(
+            apply_project_command(
+                &mut bundle,
+                UiProjectCommand::PutProjectSettings {
+                    dmx_refresh_hz: 60,
+                    disconnect_policy: "holdLastLook".into(),
+                    disconnect_timeout_ms: 10_000,
+                },
+                None,
+            ),
+            Err(BackendError::InvalidCommand(_))
+        ));
     }
 
     #[test]

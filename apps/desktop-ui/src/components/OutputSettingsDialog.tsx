@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useShowStore } from "../store/showStore";
-import type { UniverseSummary } from "../types/show";
+import type { ProjectSettingsSummary, UniverseSummary } from "../types/show";
 
 interface OutputSettingsDialogProps {
   onClose: () => void;
@@ -10,14 +10,18 @@ interface OutputSettingsDialogProps {
 export function OutputSettingsDialog({ onClose }: OutputSettingsDialogProps) {
   const universes = useShowStore((state) => state.universes);
   const telemetry = useShowStore((state) => state.engineTelemetry);
+  const projectSettings = useShowStore((state) => state.projectSettings);
   const mode = useShowStore((state) => state.mode);
   const addUniverse = useShowStore((state) => state.addUniverse);
   const putUniverseOutput = useShowStore((state) => state.putUniverseOutput);
+  const putProjectSettings = useShowStore((state) => state.putProjectSettings);
   const [drafts, setDrafts] = useState(universes);
+  const [settingsDraft, setSettingsDraft] = useState(projectSettings);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => setDrafts(universes), [universes]);
+  useEffect(() => setSettingsDraft(projectSettings), [projectSettings]);
 
   const update = (id: number, values: Partial<UniverseSummary>) => {
     setDrafts((current) => current.map((universe) => (
@@ -37,8 +41,16 @@ export function OutputSettingsDialog({ onClose }: OutputSettingsDialogProps) {
       setError(`Check the name, destination and Art-Net port-address for Universe ${invalid.id}.`);
       return;
     }
+    if (settingsDraft.disconnectTimeoutMs < 1_000 || settingsDraft.disconnectTimeoutMs > 300_000) {
+      setError("The UI disconnect timeout must be between 1 and 300 seconds.");
+      return;
+    }
     setSaving(true);
     setError(undefined);
+    if (!await putProjectSettings(settingsDraft)) {
+      setSaving(false);
+      return;
+    }
     for (const universe of drafts) {
       if (!await putUniverseOutput(universe)) {
         setSaving(false);
@@ -63,6 +75,10 @@ export function OutputSettingsDialog({ onClose }: OutputSettingsDialogProps) {
           <Metric label="Missed ticks" value={telemetry.missedDeadlines.toLocaleString()} good={telemetry.missedDeadlines === 0} />
           <Metric label="Dropped commands" value={telemetry.droppedCommands.toLocaleString()} good={telemetry.droppedCommands === 0} />
         </div>
+
+        {telemetry.watchdogBlackout && <div className="watchdog-warning">FAIL-SAFE BLACKOUT IS ACTIVE — output resumes after UI communication returns.</div>}
+
+        <SafetySettings settings={settingsDraft} onChange={setSettingsDraft} />
 
         <div className="output-help">
           <strong>One route per DMX universe</strong>
@@ -110,4 +126,15 @@ function TextField({ label, value, placeholder, onChange }: { label: string; val
 
 function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
   return <label><span>{label}</span><input type="number" min={0} max={32767} step={1} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+}
+
+function SafetySettings({ settings, onChange }: { settings: ProjectSettingsSummary; onChange: (settings: ProjectSettingsSummary) => void }) {
+  return (
+    <div className="output-safety-settings">
+      <div><strong>Engine safety</strong><span>These settings run in the headless engine even if the window freezes.</span></div>
+      <label><span>DMX refresh</span><select value={settings.dmxRefreshHz} onChange={(event) => onChange({ ...settings, dmxRefreshHz: Number(event.target.value) })}><option value={30}>30 Hz</option><option value={40}>40 Hz</option><option value={44}>44 Hz</option></select></label>
+      <label><span>If UI disconnects</span><select value={settings.disconnectPolicy} onChange={(event) => onChange({ ...settings, disconnectPolicy: event.target.value as ProjectSettingsSummary["disconnectPolicy"] })}><option value="holdLastLook">Keep sending last look</option><option value="blackoutAfterTimeout">Blackout after timeout</option></select></label>
+      <label><span>Timeout</span><div className="timeout-field"><input type="number" min={1} max={300} step={1} disabled={settings.disconnectPolicy === "holdLastLook"} value={Math.round(settings.disconnectTimeoutMs / 1_000)} onChange={(event) => onChange({ ...settings, disconnectTimeoutMs: Number(event.target.value) * 1_000 })} /><b>sec</b></div></label>
+    </div>
+  );
 }

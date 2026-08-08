@@ -7,6 +7,7 @@ export type EffectDirection = "forward" | "reverse";
 export type EffectBlend = "replace" | "add";
 export type EffectOrder = "fixtureOrder" | "layoutX" | "layoutY";
 export type BeatSource = "fixed" | "tap" | "audio";
+export type DisconnectPolicy = "holdLastLook" | "blackoutAfterTimeout";
 
 export interface LayoutFixture {
   id: string;
@@ -165,6 +166,13 @@ export interface EngineTelemetry {
   missedDeadlines: number;
   droppedCommands: number;
   droppedJournalEntries: number;
+  watchdogBlackout: boolean;
+}
+
+export interface ProjectSettingsSummary {
+  dmxRefreshHz: number;
+  disconnectPolicy: DisconnectPolicy;
+  disconnectTimeoutMs: number;
 }
 
 export interface UniverseSummary {
@@ -218,6 +226,7 @@ export interface ProjectView {
   fixtureDefinitions: FixtureDefinitionSummary[];
   background: StageBackground | null;
   universes: UniverseSummary[];
+  settings: ProjectSettingsSummary;
   universeCount: number;
 }
 
@@ -282,6 +291,7 @@ export type ProjectCommand =
   | { type: "deleteFixtures"; data: { fixtureIds: string[] } }
   | { type: "addUniverse" }
   | { type: "putUniverseOutput"; data: { universe: number; name: string; enabled: boolean; portAddress: number; destination: string; interface: string | null; broadcast: boolean } }
+  | { type: "putProjectSettings"; data: ProjectSettingsSummary }
   | { type: "putBackground"; data: { name: string; mime: string; bytes: number[] } }
   | { type: "removeBackground" }
   | { type: "addStageObject"; data: { kind: StageObjectKind; name: string; x: number; y: number } }

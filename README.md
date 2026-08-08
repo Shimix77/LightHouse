@@ -11,6 +11,7 @@ The project is under active MVP development. It combines a headless Rust show en
 - [Show Core behavior baseline](docs/behavior-specs/SHOW_CORE.md)
 - [Project format and recovery baseline](docs/behavior-specs/PROJECT_FORMAT.md)
 - [Engine sidecar and IPC baseline](docs/behavior-specs/ENGINE_SIDECAR.md)
+- [Fail-safe and crash-recovery behavior](docs/behavior-specs/FAILSAFE_RECOVERY.md)
 
 ## Workspace
 
@@ -21,7 +22,7 @@ The Rust engine has no UI or physical-DMX dependency. Its modules cover:
 - conflict-safe patching and unlimited logical universe identifiers;
 - logical-parameter resolution into 512-slot DMX frames;
 - a protocol-independent output API, virtual DMX output and Art-Net adapter;
-- an independent 44 Hz output loop with hold-last-look and safety blackout.
+- an independent configurable 30–44 Hz output loop with hold-last-look, watchdog and safety blackout;
 - one versioned command/event path for UI and future external controllers;
 - partial-scene LTP layering, deterministic fades, cue GO/BACK/PAUSE and Blind/Freeze;
 - 15 deterministic effect templates, spatial fixture ordering, fanning and Tap Tempo.

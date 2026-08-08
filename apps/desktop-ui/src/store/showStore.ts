@@ -25,6 +25,7 @@ import type {
   LiveControlSummary,
   OperationMode,
   ProjectCommand,
+  ProjectSettingsSummary,
   RecentProject,
   SceneSummary,
   StageBackground,
@@ -55,6 +56,7 @@ interface ShowUiState {
   livePage: number;
   fixtureDefinitions: FixtureDefinitionSummary[];
   universes: UniverseSummary[];
+  projectSettings: ProjectSettingsSummary;
   universeCount: number;
   projectPath: string;
   recentProjects: RecentProject[];
@@ -109,6 +111,7 @@ interface ShowUiState {
   dismissRecoveryNotice: () => void;
   addUniverse: () => void;
   putUniverseOutput: (universe: UniverseSummary) => Promise<boolean>;
+  putProjectSettings: (settings: ProjectSettingsSummary) => Promise<boolean>;
   addStageObject: (kind: StageObjectKind, name: string) => void;
   putGroup: (groupId: string | null, name: string, fixtureIds: string[]) => void;
   deleteGroup: (groupId: string) => void;
@@ -242,6 +245,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     livePage: 1,
     fixtureDefinitions: initialFixtureDefinitions,
     universes: [{ id: 1, name: "Universe 1", enabled: true, portAddress: 0, destination: "127.0.0.1:6454", interface: null, broadcast: false }],
+    projectSettings: { dmxRefreshHz: 44, disconnectPolicy: "holdLastLook", disconnectTimeoutMs: 10_000 },
     universeCount: 1,
     projectPath: "",
     recentProjects: [],
@@ -609,6 +613,10 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         broadcast: universe.broadcast,
       },
     }),
+    putProjectSettings: (settings) => mutateProject({
+      type: "putProjectSettings",
+      data: settings,
+    }),
     addStageObject: (kind, name) => {
       void mutateProject({ type: "addStageObject", data: { kind, name, x: 0, y: 0 } });
     },
@@ -744,6 +752,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         fixtureDefinitions: bootstrap.project.fixtureDefinitions,
         background: bootstrap.project.background ?? undefined,
         universes: bootstrap.project.universes,
+        projectSettings: bootstrap.project.settings,
         universeCount: bootstrap.project.universeCount,
         undoStack: [],
         redoStack: [],
@@ -876,6 +885,7 @@ function emptyTelemetry(): EngineTelemetry {
     missedDeadlines: 0,
     droppedCommands: 0,
     droppedJournalEntries: 0,
+    watchdogBlackout: false,
   };
 }
 

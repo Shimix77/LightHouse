@@ -68,6 +68,7 @@ pub struct EngineTelemetry {
     pub missed_deadlines: u64,
     pub dropped_commands: u64,
     pub dropped_journal_entries: u64,
+    pub watchdog_blackout: bool,
 }
 
 #[derive(Clone, Debug)]

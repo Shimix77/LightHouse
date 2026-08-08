@@ -50,6 +50,7 @@ pub struct RuntimeTelemetry {
     pub dropped_commands: u64,
     pub dropped_journal_entries: u64,
     pub frame_build_errors: u64,
+    pub watchdog_blackout: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -70,6 +71,7 @@ struct SharedRuntime {
     dropped_commands: AtomicU64,
     dropped_journal_entries: AtomicU64,
     frame_build_errors: AtomicU64,
+    watchdog_blackout: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -116,6 +118,14 @@ impl EngineClient {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
+
+    /// Applies a transient safety blackout without mutating the logical show state.
+    pub fn set_watchdog_blackout(&self, enabled: bool) {
+        self.shared
+            .watchdog_blackout
+            .store(enabled, Ordering::Release);
+        self.worker_thread.unpark();
+    }
 }
 
 pub struct EngineRuntime {
@@ -137,6 +147,9 @@ impl EngineRuntime {
         let fixtures = compile_runtime_fixtures(&bundle)?;
         let mut core = ShowCore::new(bundle.project.project_id, SystemClock::default());
         hydrate_show_core(&mut core, &bundle);
+        if let Some(path) = config.recovery_journal_path.as_ref() {
+            replay_recovery_journal(&mut core, path)?;
+        }
         let initial_snapshot = core.snapshot();
         let output = DmxOutputLoop::start(adapter, config.refresh_hz)?;
 
@@ -151,6 +164,7 @@ impl EngineRuntime {
             dropped_commands: AtomicU64::new(0),
             dropped_journal_entries: AtomicU64::new(0),
             frame_build_errors: AtomicU64::new(0),
+            watchdog_blackout: AtomicBool::new(false),
         });
 
         let (persistence_sender, persistence_worker) =
@@ -363,7 +377,9 @@ impl EngineLoop {
             );
 
             let show_snapshot = self.core.snapshot();
-            self.output.set_blackout(show_snapshot.blackout);
+            self.output.set_blackout(
+                show_snapshot.blackout || self.shared.watchdog_blackout.load(Ordering::Acquire),
+            );
             self.output.set_grand_master(show_snapshot.grand_master);
             match build_frames(&self.fixtures, &show_snapshot.resolved_values) {
                 Ok(frames) => self.output.publish(frames),
@@ -461,11 +477,38 @@ fn publish_runtime_snapshot(shared: &SharedRuntime, show: ShowSnapshot, output: 
         dropped_commands: shared.dropped_commands.load(Ordering::Relaxed),
         dropped_journal_entries: shared.dropped_journal_entries.load(Ordering::Relaxed),
         frame_build_errors: shared.frame_build_errors.load(Ordering::Relaxed),
+        watchdog_blackout: shared.watchdog_blackout.load(Ordering::Acquire),
     };
     *shared
         .snapshot
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = RuntimeSnapshot { show, telemetry };
+}
+
+fn replay_recovery_journal(
+    core: &mut ShowCore<SystemClock>,
+    path: &std::path::Path,
+) -> Result<(), RuntimeError> {
+    let read = RecoveryJournal::new(path)
+        .read()
+        .map_err(|error| RuntimeError::InvalidProject(format!("recovery journal: {error}")))?;
+    let mut previous_sequence = 0;
+    for entry in read.entries {
+        if entry.sequence <= previous_sequence {
+            return Err(RuntimeError::InvalidProject(
+                "recovery journal sequence is not strictly increasing".into(),
+            ));
+        }
+        previous_sequence = entry.sequence;
+        let outcome = core.process(entry.command);
+        if let Err(rejection) = outcome.result {
+            return Err(RuntimeError::InvalidProject(format!(
+                "recovery command was rejected: {}",
+                rejection.message
+            )));
+        }
+    }
+    Ok(())
 }
 
 type PersistenceWorker = (Option<SyncSender<JournalEntry>>, Option<JoinHandle<()>>);
@@ -522,8 +565,20 @@ mod tests {
     use lighthouse_fixture_library::FixtureLibrary;
     use lighthouse_output_api::VirtualDmxOutput;
     use lighthouse_persistence::{FixtureRecord, PatchRecord, UniverseRecord};
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
     use super::*;
+
+    static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    fn recovery_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "lighthouse-runtime-recovery-{}-{}.jsonl",
+            std::process::id(),
+            TEST_SEQUENCE.fetch_add(1, AtomicOrdering::Relaxed)
+        ))
+    }
 
     fn sample_project() -> ProjectBundle {
         let project_id = ProjectId::new(1);
@@ -651,5 +706,95 @@ mod tests {
             Some(0)
         );
         runtime.shutdown();
+    }
+
+    #[test]
+    fn watchdog_blackout_is_transient_and_does_not_mutate_show_state() {
+        let (adapter, virtual_node) = VirtualDmxOutput::new();
+        let runtime =
+            EngineRuntime::start(sample_project(), adapter, EngineRuntimeConfig::default())
+                .unwrap();
+        let client = runtime.client();
+        client
+            .submit(command(
+                1,
+                Command::SetFixtureParameter {
+                    fixture_id: FixtureId::new(10),
+                    parameter_id: ParameterId::from("intensity"),
+                    value: NormalizedValue::FULL,
+                },
+                PriorityLane::Live,
+            ))
+            .unwrap();
+        client.set_watchdog_blackout(true);
+        thread::sleep(Duration::from_millis(50));
+        assert!(client.snapshot().telemetry.watchdog_blackout);
+        assert!(!client.snapshot().show.blackout);
+        assert_eq!(
+            virtual_node
+                .snapshot()
+                .last_frames
+                .unwrap()
+                .frame(UniverseId::new(1))
+                .unwrap()
+                .slot(1),
+            Some(0)
+        );
+
+        client.set_watchdog_blackout(false);
+        thread::sleep(Duration::from_millis(50));
+        assert_eq!(
+            virtual_node
+                .snapshot()
+                .last_frames
+                .unwrap()
+                .frame(UniverseId::new(1))
+                .unwrap()
+                .slot(1),
+            Some(255)
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn accepted_commands_replay_from_the_recovery_journal() {
+        let path = recovery_path();
+        RecoveryJournal::new(&path)
+            .append(&JournalEntry {
+                sequence: 1,
+                command: command(
+                    91,
+                    Command::SetFixtureParameter {
+                        fixture_id: FixtureId::new(10),
+                        parameter_id: ParameterId::from("intensity"),
+                        value: NormalizedValue::FULL,
+                    },
+                    PriorityLane::Live,
+                ),
+            })
+            .unwrap();
+        let (adapter, virtual_node) = VirtualDmxOutput::new();
+        let runtime = EngineRuntime::start(
+            sample_project(),
+            adapter,
+            EngineRuntimeConfig {
+                recovery_journal_path: Some(path.clone()),
+                ..EngineRuntimeConfig::default()
+            },
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(50));
+        assert_eq!(
+            virtual_node
+                .snapshot()
+                .last_frames
+                .unwrap()
+                .frame(UniverseId::new(1))
+                .unwrap()
+                .slot(1),
+            Some(255)
+        );
+        runtime.shutdown();
+        fs::remove_file(path).unwrap();
     }
 }
