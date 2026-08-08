@@ -7,6 +7,8 @@ export function StageToolbar() {
   const undo = useShowStore((state) => state.undo);
   const redo = useShowStore((state) => state.redo);
   const duplicate = useShowStore((state) => state.duplicateSelection);
+  const copy = useShowStore((state) => state.copySelection);
+  const paste = useShowStore((state) => state.pasteSelection);
   const importBackground = useShowStore((state) => state.importBackground);
   const removeBackground = useShowStore((state) => state.removeBackground);
   const background = useShowStore((state) => state.background);
@@ -30,7 +32,9 @@ export function StageToolbar() {
       <div className="tool-group">
         <button onClick={undo} title="Undo">↶</button>
         <button onClick={redo} title="Redo">↷</button>
-        <button onClick={duplicate} title="Duplicate selection">⧉</button>
+        <button onClick={copy} title="Copy selection (⌘C)">⧉</button>
+        <button onClick={paste} title="Paste (⌘V)">▣</button>
+        <button onClick={duplicate} title="Duplicate selection (⌘D)">⧈</button>
       </div>
       <div className="tool-separator" />
       <button className="wide-tool"># GRID <span>1 m</span></button>
