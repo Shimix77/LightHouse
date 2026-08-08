@@ -96,6 +96,10 @@ Prekrývanie bude deterministické po jednotlivých parametroch: z aktívnych sc
 
 - Stage zostáva viditeľný v hornej časti; nebude existovať celoobrazovkový režim iba s tlačidlami.
 - Live plocha je upraviteľná snap-to-grid mriežka s presúvaním a resize.
+- Každé Live tlačidlo sa dá v režime `Edit` nezávisle zväčšovať alebo zmenšovať na šírku aj výšku.
+- Vybrané tlačidlo zobrazí osem resize úchytov: štyri rohy a stred každej strany. Počas úpravy sa zobrazuje rozmer v jednotkách mriežky, napríklad `4 × 2`.
+- Minimálna veľkosť je jedna použiteľná bunka mriežky; obsah tlačidla sa responzívne prispôsobí. Resize sa zastaví pred obsadenou bunkou, takže tlačidlá sa neprekrývajú.
+- Pozícia aj rozmery všetkých tlačidiel sa ukladajú v projekte. V režime `Done` sú presúvanie aj resize uzamknuté proti nechcenej zmene počas show.
 - Scény, presets a efekty sa pridávajú drag & dropom.
 - Zatiaľ existuje jedna Live stránka, ktorá môže obsahovať vizuálne skupiny.
 - Button behavior je nastaviteľný ako Toggle, Flash/Hold, Push alebo Radio Group.
@@ -133,14 +137,14 @@ Prekrývanie bude deterministické po jednotlivých parametroch: z aktívnych sc
 
 Mockupy sú vizuálny smer, nie pixelovo presná implementačná špecifikácia. Text, spacing a komponenty sa po schválení prekreslia deterministicky v React/CSS/PixiJS.
 
-## Mockupy v2 – smer podľa dodaných screenshotov
+## Aktuálne mockupy – smer podľa dodaných screenshotov
 
 - [Project Browser](mockups/startup-screen-v2.png)
 - [Fixture Manager](mockups/fixture-manager-v2.png)
 - [Design workspace](mockups/design-workspace-v2.png)
-- [Live workspace](mockups/live-workspace-v2.png)
+- [Live workspace – resizable buttons](mockups/live-workspace-v3-resizable-buttons.png)
 
-Mockupy v2 nahrádzajú vizuálny smer v1. Pri implementácii sa nekopíruje značka ani assety Lightkey; preberá sa overená informačná architektúra, workflow a hustota profesionálneho macOS ovládača.
+Aktuálne mockupy nahrádzajú vizuálny smer v1. Pri implementácii sa nekopíruje značka ani assety Lightkey; preberá sa overená informačná architektúra, workflow a hustota profesionálneho macOS ovládača.
 
 ## Uzavreté rozhodnutia
 
@@ -152,3 +156,4 @@ Mockupy v2 nahrádzajú vizuálny smer v1. Pri implementácii sa nekopíruje zna
 6. Druhý monitor použije zjednodušený Live pohľad.
 7. Vizuál je hybrid natívneho macOS a profesionálneho lighting console.
 8. Stage sa prepína medzi Front a Top pohľadom.
+9. Každé Live tlačidlo má samostatne nastaviteľnú šírku a výšku.
