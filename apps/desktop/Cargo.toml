@@ -13,6 +13,7 @@ tauri = { version = "2.11.5", features = [] }
 serde.workspace = true
 serde_json.workspace = true
 uuid = { version = "1.24.0", features = ["v4"] }
+base64 = "0.22.1"
 lighthouse-commands = { path = "../../crates/commands" }
 lighthouse-domain = { path = "../../crates/domain" }
 lighthouse-effects = { path = "../../crates/effects" }

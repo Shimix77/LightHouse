@@ -2,6 +2,8 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -56,25 +58,34 @@ fn serve(project_path: &Path, auth_token: String, address: &str) -> Result<(), B
     )?;
 
     let listener = TcpListener::bind(address)?;
+    listener.set_nonblocking(true)?;
     let bound_address = listener.local_addr()?;
     println!(
         "{{\"address\":\"{bound_address}\",\"contractVersion\":{IPC_CONTRACT_VERSION},\"projectId\":{}}}",
         project_id.0
     );
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    while !shutdown.load(Ordering::Acquire) {
+        match listener.accept() {
+            Ok((stream, _peer_address)) => {
                 let validator = HandshakeValidator::new(auth_token.clone());
                 let client = runtime.client();
+                let client_shutdown = Arc::clone(&shutdown);
                 thread::Builder::new()
                     .name("lighthouse-ipc-client".into())
                     .spawn(move || {
-                        let _ = handle_client(stream, &validator, &client);
+                        let _ = handle_client(stream, &validator, &client, &client_shutdown);
                     })?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(20));
             }
             Err(error) => eprintln!("IPC accept failed: {error}"),
         }
     }
+    // Give the authenticated shutdown client time to receive its acknowledgement before
+    // dropping the runtime and terminating the process.
+    thread::sleep(Duration::from_millis(40));
     Ok(())
 }
 
@@ -113,7 +124,9 @@ fn handle_client(
     mut stream: TcpStream,
     validator: &HandshakeValidator,
     client: &EngineClient,
+    shutdown: &AtomicBool,
 ) -> Result<(), Box<dyn Error>> {
+    stream.set_nonblocking(false)?;
     stream.set_nodelay(true)?;
     let Some(hello) = read_message::<_, ClientMessage>(&mut stream)? else {
         return Ok(());
@@ -159,8 +172,14 @@ fn handle_client(
             },
             ClientMessage::RequestSnapshot => snapshot_message(client),
             ClientMessage::Ping { nonce } => ServerMessage::Pong { nonce },
+            ClientMessage::Shutdown => ServerMessage::ShuttingDown,
         };
         write_message(&mut stream, &response)?;
+        if matches!(response, ServerMessage::ShuttingDown) {
+            stream.shutdown(std::net::Shutdown::Write)?;
+            shutdown.store(true, Ordering::Release);
+            break;
+        }
     }
     Ok(())
 }

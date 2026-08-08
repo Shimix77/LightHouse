@@ -4,7 +4,7 @@ mod backend;
 
 use std::sync::Mutex;
 
-use backend::{DesktopBackend, UiBootstrap, UiEngineCommand, UiEngineView};
+use backend::{DesktopBackend, UiBootstrap, UiEngineCommand, UiEngineView, UiProjectCommand};
 use tauri::Manager;
 
 fn main() {
@@ -17,7 +17,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_bootstrap,
             refresh_engine,
-            engine_command
+            engine_command,
+            project_command
         ])
         .run(tauri::generate_context!())
         .expect("failed to run LightHouse desktop application");
@@ -50,5 +51,17 @@ fn engine_command(
         .lock()
         .map_err(|_| "desktop backend lock is poisoned".to_owned())?
         .command(command)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn project_command(
+    state: tauri::State<'_, Mutex<DesktopBackend>>,
+    command: UiProjectCommand,
+) -> Result<UiBootstrap, String> {
+    state
+        .lock()
+        .map_err(|_| "desktop backend lock is poisoned".to_owned())?
+        .project_command(command)
         .map_err(|error| error.to_string())
 }

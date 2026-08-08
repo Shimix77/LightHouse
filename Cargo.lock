@@ -1660,6 +1660,7 @@ dependencies = [
 name = "lighthouse-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "lighthouse-commands",
  "lighthouse-domain",
  "lighthouse-effects",
@@ -1795,6 +1796,7 @@ version = "0.1.0"
 dependencies = [
  "lighthouse-domain",
  "lighthouse-engine-runtime",
+ "lighthouse-fixture-library",
  "lighthouse-ipc",
  "lighthouse-output-api",
  "lighthouse-output-artnet",

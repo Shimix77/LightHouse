@@ -1,6 +1,10 @@
 import { create } from "zustand";
 
-import { dispatchEngineCommand } from "../services/engineClient";
+import {
+  dispatchEngineCommand,
+  hasNativeEngine,
+  sendProjectCommand,
+} from "../services/engineClient";
 import type {
   CueListSummary,
   EffectSummary,
@@ -8,9 +12,11 @@ import type {
   EngineCommand,
   EngineTelemetry,
   EngineView,
+  FixtureDefinitionSummary,
   FixtureSnapshot,
   LayoutFixture,
   OperationMode,
+  ProjectCommand,
   SceneSummary,
   StageBackground,
 } from "../types/show";
@@ -28,6 +34,7 @@ interface ShowUiState {
   bpm: number;
   cueLists: CueListSummary[];
   effects: EffectSummary[];
+  fixtureDefinitions: FixtureDefinitionSummary[];
   universeCount: number;
   projectPath: string;
   engineConnected: boolean;
@@ -54,11 +61,15 @@ interface ShowUiState {
   goNextCue: () => void;
   backCue: () => void;
   toggleCuePause: () => void;
-  setBackground: (background: StageBackground | undefined) => void;
+  importBackground: (file: File) => Promise<void>;
+  removeBackground: () => void;
   undo: () => void;
   redo: () => void;
   duplicateSelection: () => void;
   deleteSelection: () => void;
+  patchFixture: (fixtureId: string, universe: number, address: number) => void;
+  addFixture: (definitionId: string, modeId: string, name: string) => void;
+  addUniverse: () => void;
   hydrateEngine: (bootstrap: EngineBootstrap) => void;
   applyEngineView: (view: EngineView) => void;
   setEngineError: (message: string) => void;
@@ -80,11 +91,45 @@ const initialScenes: SceneSummary[] = [
   { id: "scene-4", number: "4", name: "Full Energy", color: "#ff4d6d", active: false, fadeMs: 300 },
 ];
 
+const initialFixtureDefinitions: FixtureDefinitionSummary[] = [
+  { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", modes: [{ id: "1ch", name: "1 Channel", footprint: 1 }] },
+  { id: "generic.rgbw-par", manufacturer: "LightHouse", model: "Generic RGBW PAR", modes: [{ id: "5ch", name: "Intensity + RGBW", footprint: 5 }] },
+  { id: "generic.moving-head-16bit", manufacturer: "LightHouse", model: "Generic 16-bit Moving Head", modes: [{ id: "10ch", name: "Pan/Tilt 16-bit + RGB + Beam", footprint: 10 }] },
+];
+
 export const useShowStore = create<ShowUiState>((set, get) => {
   const onEngineView = (view: EngineView) => get().applyEngineView(view);
   const onEngineError = (message: string) => set({ engineConnected: false, engineError: message });
   const dispatch = (command: EngineCommand, key?: string) =>
     dispatchEngineCommand(command, onEngineView, onEngineError, key);
+  const mutateProject = async (command: ProjectCommand): Promise<boolean> => {
+    if (!hasNativeEngine()) return false;
+    try {
+      get().hydrateEngine(await sendProjectCommand(command));
+      return true;
+    } catch (error) {
+      set({ engineError: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+  };
+  const persistLayouts = (ids: string[]) => {
+    const layouts = get().fixtures
+      .filter((fixtureItem) => ids.includes(fixtureItem.id))
+      .map((fixtureItem) => ({
+        fixtureId: fixtureItem.id,
+        x: fixtureItem.x,
+        y: fixtureItem.y,
+        width: fixtureItem.width,
+        height: fixtureItem.height,
+        rotation: fixtureItem.rotation,
+        locked: fixtureItem.locked,
+        hidden: fixtureItem.hidden,
+        layer: fixtureItem.layer,
+      }));
+    if (layouts.length > 0) {
+      void mutateProject({ type: "updateLayouts", data: { layouts } });
+    }
+  };
 
   return {
     projectName: "Main Stage — Demo",
@@ -94,6 +139,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     scenes: initialScenes,
     cueLists: [],
     effects: [],
+    fixtureDefinitions: initialFixtureDefinitions,
     universeCount: 1,
     projectPath: "",
     grandMaster: 1,
@@ -125,24 +171,31 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         undoStack: [...state.undoStack.slice(-49), snapshot(state.fixtures)],
         redoStack: [],
       })),
-    moveFixtures: (ids, deltaX, deltaY) =>
+    moveFixtures: (ids, deltaX, deltaY) => {
       set((state) => ({
         fixtures: state.fixtures.map((fixtureItem) =>
           ids.includes(fixtureItem.id) && !fixtureItem.locked
             ? { ...fixtureItem, x: fixtureItem.x + deltaX, y: fixtureItem.y + deltaY }
             : fixtureItem,
         ),
-      })),
+      }));
+      persistLayouts(ids);
+    },
     updateSelectedFixtures: (update) => {
       const selectedIds = get().selectedFixtureIds;
       set((state) => ({
         fixtures: state.fixtures.map((fixtureItem) =>
-          selectedIds.includes(fixtureItem.id) && !fixtureItem.locked
+          selectedIds.includes(fixtureItem.id)
+            && (!fixtureItem.locked || update.locked === false)
             ? { ...fixtureItem, ...update }
             : fixtureItem,
         ),
       }));
       for (const fixtureId of selectedIds) dispatchFixtureUpdate(fixtureId, update, dispatch);
+      if (["x", "y", "width", "height", "rotation", "locked", "hidden", "layer"]
+        .some((property) => property in update)) {
+        persistLayouts(selectedIds);
+      }
     },
     setGrandMaster: (value) => {
       const grandMaster = clamp(value);
@@ -195,7 +248,47 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         ? { type: "resumeCueList", data: { cueListId: cueList.id } }
         : { type: "pauseCueList", data: { cueListId: cueList.id } });
     },
-    setBackground: (background) => set({ background }),
+    importBackground: async (file) => {
+      if (!(["image/png", "image/jpeg"] as string[]).includes(file.type)) {
+        set({ engineError: "Floor plan must be a PNG or JPEG image." });
+        return;
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        set({ engineError: "Floor plan must be 12 MB or smaller." });
+        return;
+      }
+      if (!hasNativeEngine()) {
+        const previous = get().background;
+        if (previous?.dataUrl.startsWith("blob:")) URL.revokeObjectURL(previous.dataUrl);
+        set({
+          background: {
+            dataUrl: URL.createObjectURL(file),
+            name: file.name,
+            opacity: 0.55,
+            locked: true,
+          },
+          engineError: undefined,
+        });
+        return;
+      }
+      await mutateProject({
+        type: "putBackground",
+        data: {
+          name: file.name,
+          mime: file.type,
+          bytes: Array.from(new Uint8Array(await file.arrayBuffer())),
+        },
+      });
+    },
+    removeBackground: () => {
+      const previous = get().background;
+      if (previous?.dataUrl.startsWith("blob:")) URL.revokeObjectURL(previous.dataUrl);
+      if (hasNativeEngine()) {
+        void mutateProject({ type: "removeBackground" });
+      } else {
+        set({ background: undefined });
+      }
+    },
     undo: () => {
       const state = get();
       const previous = state.undoStack.at(-1);
@@ -220,6 +313,13 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     },
     duplicateSelection: () => {
       const state = get();
+      if (hasNativeEngine() && state.selectedFixtureIds.length > 0) {
+        void mutateProject({
+          type: "duplicateFixtures",
+          data: { fixtureIds: state.selectedFixtureIds },
+        });
+        return;
+      }
       state.captureFixtureHistory();
       const duplicated = state.fixtures
         .filter((fixtureItem) => state.selectedFixtureIds.includes(fixtureItem.id))
@@ -238,6 +338,13 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     },
     deleteSelection: () => {
       const state = get();
+      if (hasNativeEngine() && state.selectedFixtureIds.length > 0) {
+        void mutateProject({
+          type: "deleteFixtures",
+          data: { fixtureIds: state.selectedFixtureIds },
+        });
+        return;
+      }
       state.captureFixtureHistory();
       set((current) => ({
         fixtures: current.fixtures.filter(
@@ -246,16 +353,30 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         selectedFixtureIds: [],
       }));
     },
+    patchFixture: (fixtureId, universe, address) =>
+      void mutateProject({ type: "patchFixture", data: { fixtureId, universe, address } }),
+    addFixture: (definitionId, modeId, name) =>
+      void mutateProject({
+        type: "addFixture",
+        data: { definitionId, modeId, name, x: 0, y: 0 },
+      }),
+    addUniverse: () => { void mutateProject({ type: "addUniverse" }); },
     hydrateEngine: (bootstrap) => {
-      const selectedId = bootstrap.project.fixtures[0]?.id;
+      const availableIds = new Set(bootstrap.project.fixtures.map((fixtureItem) => fixtureItem.id));
+      const retainedSelection = get().selectedFixtureIds.filter((id) => availableIds.has(id));
+      const fallbackId = bootstrap.project.fixtures[0]?.id;
       set({
         projectName: bootstrap.project.name,
         projectPath: bootstrap.projectPath,
         fixtures: bootstrap.project.fixtures,
-        selectedFixtureIds: selectedId ? [selectedId] : [],
+        selectedFixtureIds: retainedSelection.length > 0
+          ? retainedSelection
+          : fallbackId ? [fallbackId] : [],
         scenes: bootstrap.project.scenes,
         cueLists: bootstrap.project.cueLists,
         effects: bootstrap.project.effects,
+        fixtureDefinitions: bootstrap.project.fixtureDefinitions,
+        background: bootstrap.project.background ?? undefined,
         universeCount: bootstrap.project.universeCount,
         undoStack: [],
         redoStack: [],
@@ -392,10 +513,15 @@ function fixture(
     id,
     name,
     kind,
+    definitionId: kind === "moving-head" ? "generic.moving-head-16bit" : kind === "par" ? "generic.rgbw-par" : "generic.dimmer",
+    modeId: kind === "moving-head" ? "10ch" : kind === "par" ? "5ch" : "1ch",
+    footprint: kind === "moving-head" ? 10 : kind === "par" ? 5 : 1,
     universe,
     address,
     x,
     y,
+    width: 0.65,
+    height: 0.65,
     rotation: 0,
     intensity: 0.72,
     color,
@@ -403,6 +529,7 @@ function fixture(
     tilt: 0.5,
     zoom: 0.45,
     locked: false,
+    hidden: false,
     layer: "Fixtures",
   };
 }

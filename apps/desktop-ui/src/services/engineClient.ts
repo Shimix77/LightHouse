@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-import type { EngineBootstrap, EngineCommand, EngineView } from "../types/show";
+import type { EngineBootstrap, EngineCommand, EngineView, ProjectCommand } from "../types/show";
 
 type ViewHandler = (view: EngineView) => void;
 type ErrorHandler = (message: string) => void;
@@ -24,6 +24,10 @@ export async function getEngineBootstrap(): Promise<EngineBootstrap> {
 
 export async function refreshEngine(): Promise<EngineView> {
   return invoke<EngineView>("refresh_engine");
+}
+
+export async function sendProjectCommand(command: ProjectCommand): Promise<EngineBootstrap> {
+  return invoke<EngineBootstrap>("project_command", { command });
 }
 
 export function dispatchEngineCommand(

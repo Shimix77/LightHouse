@@ -41,7 +41,8 @@ body,
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -53,6 +54,115 @@ button:focus-visible,
 input:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 1px;
+}
+
+.fixture-dialog-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 6, 10, 0.72);
+  backdrop-filter: blur(5px);
+}
+
+.fixture-dialog {
+  width: min(460px, calc(100vw - 40px));
+  padding: 18px;
+  border: 1px solid var(--line-bright);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #19212c, #111720);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.58);
+}
+
+.fixture-dialog header,
+.fixture-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fixture-dialog header {
+  margin-bottom: 18px;
+}
+
+.fixture-dialog h2,
+.fixture-dialog p {
+  margin: 0;
+}
+
+.fixture-dialog header small {
+  color: var(--cyan);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.fixture-dialog header h2 {
+  margin-top: 4px;
+  font-size: 19px;
+}
+
+.fixture-dialog header button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.fixture-dialog > label {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.fixture-dialog > label span {
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.fixture-dialog select,
+.fixture-dialog input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #0d131b;
+  color: var(--text);
+}
+
+.fixture-dialog p {
+  padding: 10px 0 16px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.fixture-dialog footer {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fixture-dialog footer button {
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.fixture-dialog footer button.primary {
+  border-color: #2d809d;
+  background: #1e657d;
+  color: #dff8ff;
 }
 
 .app-shell {
@@ -883,19 +993,91 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: pointer;
 }
 
-.patch-summary {
+.layout-field-grid {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 9px;
-  padding: 12px;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.layout-number-field,
+.layout-text-field,
+.patch-summary label {
+  display: grid;
+  gap: 4px;
   color: var(--text-muted);
   font-size: 8px;
 }
 
-.patch-summary strong {
+.layout-number-field input,
+.layout-text-field input,
+.patch-summary input {
+  width: 100%;
+  height: 27px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #090e14;
   color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 9px;
-  font-weight: 550;
+}
+
+.layout-toggle-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.layout-toggle-row button {
+  flex: 1;
+  height: 27px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #151d27;
+  color: var(--text-muted);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.layout-toggle-row button.is-active {
+  border-color: #397a94;
+  color: var(--cyan);
+}
+
+.patch-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: #0d131a;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.patch-summary > span {
+  grid-column: 1 / -1;
+  color: var(--cyan);
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.patch-summary > button {
+  height: 28px;
+  border: 1px solid #2f7790;
+  border-radius: 4px;
+  background: #1c6077;
+  color: #ddf8ff;
+  font-size: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.patch-summary > button.add-universe-button {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text-soft);
 }
 
 .scene-panel {

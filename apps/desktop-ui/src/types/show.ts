@@ -6,10 +6,15 @@ export interface LayoutFixture {
   id: string;
   name: string;
   kind: FixtureKind;
+  definitionId: string;
+  modeId: string;
+  footprint: number;
   universe: number;
   address: number;
   x: number;
   y: number;
+  width: number;
+  height: number;
   rotation: number;
   intensity: number;
   color: string;
@@ -17,7 +22,21 @@ export interface LayoutFixture {
   tilt: number;
   zoom: number;
   locked: boolean;
+  hidden: boolean;
   layer: string;
+}
+
+export interface FixtureModeSummary {
+  id: string;
+  name: string;
+  footprint: number;
+}
+
+export interface FixtureDefinitionSummary {
+  id: string;
+  manufacturer: string;
+  model: string;
+  modes: FixtureModeSummary[];
 }
 
 export interface SceneSummary {
@@ -30,7 +49,7 @@ export interface SceneSummary {
 }
 
 export interface StageBackground {
-  url: string;
+  dataUrl: string;
   name: string;
   opacity: number;
   locked: boolean;
@@ -102,6 +121,8 @@ export interface ProjectView {
   scenes: SceneSummary[];
   cueLists: CueListSummary[];
   effects: EffectSummary[];
+  fixtureDefinitions: FixtureDefinitionSummary[];
+  background: StageBackground | null;
   universeCount: number;
 }
 
@@ -128,3 +149,25 @@ export type EngineCommand =
   | { type: "setOperationMode"; data: { mode: OperationMode } }
   | { type: "setTempo"; data: { bpm: number } }
   | { type: "tapTempo" };
+
+export interface LayoutUpdate {
+  fixtureId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  locked: boolean;
+  hidden: boolean;
+  layer: string;
+}
+
+export type ProjectCommand =
+  | { type: "updateLayouts"; data: { layouts: LayoutUpdate[] } }
+  | { type: "patchFixture"; data: { fixtureId: string; universe: number; address: number } }
+  | { type: "addFixture"; data: { name: string; definitionId: string; modeId: string; x: number; y: number } }
+  | { type: "duplicateFixtures"; data: { fixtureIds: string[] } }
+  | { type: "deleteFixtures"; data: { fixtureIds: string[] } }
+  | { type: "addUniverse" }
+  | { type: "putBackground"; data: { name: string; mime: string; bytes: number[] } }
+  | { type: "removeBackground" };
