@@ -198,6 +198,7 @@ export function StageEditor() {
             const ids = useShowStore
               .getState()
               .fixtures.filter((fixtureItem) =>
+                !fixtureItem.hidden &&
                 fixtureItem.x >= left &&
                 fixtureItem.x <= right &&
                 fixtureItem.y >= top &&
@@ -247,11 +248,13 @@ export function StageEditor() {
     containersRef.current.clear();
 
     for (const fixtureItem of fixtures) {
+      if (fixtureItem.hidden) continue;
       const beam = createBeam(fixtureItem);
       beamLayerRef.current.addChild(beam);
 
       const container = createFixtureSymbol(fixtureItem, selectedSet.has(fixtureItem.id));
       container.position.set(fixtureItem.x, fixtureItem.y);
+      container.scale.set(fixtureItem.width / 0.65, fixtureItem.height / 0.65);
       container.rotation = (fixtureItem.rotation * Math.PI) / 180;
       container.eventMode = fixtureItem.locked ? "none" : "static";
       container.cursor = fixtureItem.locked ? "not-allowed" : "move";
@@ -290,7 +293,7 @@ export function StageEditor() {
 
   const backgroundStyle = background
     ? {
-        backgroundImage: `linear-gradient(rgba(9, 12, 16, ${1 - background.opacity * 0.74}), rgba(9, 12, 16, ${1 - background.opacity * 0.74})), url("${background.url}")`,
+        backgroundImage: `linear-gradient(rgba(9, 12, 16, ${1 - background.opacity * 0.74}), rgba(9, 12, 16, ${1 - background.opacity * 0.74})), url("${background.dataUrl}")`,
       }
     : undefined;
 

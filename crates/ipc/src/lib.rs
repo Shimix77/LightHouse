@@ -28,6 +28,7 @@ pub enum ClientMessage {
     Ping {
         nonce: u64,
     },
+    Shutdown,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,6 +57,7 @@ pub enum ServerMessage {
     EngineError {
         message: String,
     },
+    ShuttingDown,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { useShowStore } from "../store/showStore";
@@ -7,8 +8,20 @@ export function Inspector() {
   const selectedIds = useShowStore((state) => state.selectedFixtureIds);
   const captureHistory = useShowStore((state) => state.captureFixtureHistory);
   const updateSelected = useShowStore((state) => state.updateSelectedFixtures);
+  const patchFixture = useShowStore((state) => state.patchFixture);
+  const addUniverse = useShowStore((state) => state.addUniverse);
+  const universeCount = useShowStore((state) => state.universeCount);
+  const operationMode = useShowStore((state) => state.mode);
   const selected = fixtures.filter((fixtureItem) => selectedIds.includes(fixtureItem.id));
   const primary = selected[0];
+  const [patchUniverse, setPatchUniverse] = useState(1);
+  const [patchAddress, setPatchAddress] = useState(1);
+
+  useEffect(() => {
+    if (!primary) return;
+    setPatchUniverse(primary.universe || 1);
+    setPatchAddress(primary.address || 1);
+  }, [primary?.id, primary?.universe, primary?.address]);
 
   if (!primary) {
     return (
@@ -73,10 +86,61 @@ export function Inspector() {
         <Fader label="Zoom" value={primary.zoom} onStart={captureHistory} onChange={(zoom) => updateSelected({ zoom })} />
       </InspectorSection>
 
+      <InspectorSection title="Stage Layout" open>
+        <div className="layout-field-grid">
+          <LayoutNumber label="X (m)" value={primary.x} onStart={captureHistory} onCommit={(x) => updateSelected({ x })} />
+          <LayoutNumber label="Y (m)" value={primary.y} onStart={captureHistory} onCommit={(y) => updateSelected({ y })} />
+          <LayoutNumber label="Width" value={primary.width} min={0.1} onStart={captureHistory} onCommit={(width) => updateSelected({ width })} />
+          <LayoutNumber label="Height" value={primary.height} min={0.1} onStart={captureHistory} onCommit={(height) => updateSelected({ height })} />
+          <LayoutNumber label="Rotation" value={primary.rotation} onStart={captureHistory} onCommit={(rotation) => updateSelected({ rotation })} />
+          <label className="layout-text-field"><span>Layer</span><input key={`${primary.id}-${primary.layer}`} defaultValue={primary.layer} onFocus={captureHistory} onBlur={(event) => updateSelected({ layer: event.target.value })} /></label>
+        </div>
+        <div className="layout-toggle-row">
+          <button className={primary.locked ? "is-active" : ""} onClick={() => { captureHistory(); updateSelected({ locked: !primary.locked }); }}>{primary.locked ? "🔒 Locked" : "🔓 Unlocked"}</button>
+          <button className={primary.hidden ? "is-active" : ""} onClick={() => { captureHistory(); updateSelected({ hidden: !primary.hidden }); }}>{primary.hidden ? "Hidden" : "Visible"}</button>
+        </div>
+      </InspectorSection>
+
       <div className="patch-summary">
-        <span>PATCH</span><strong>Universe {primary.universe}</strong><strong>Address {primary.address || "—"}</strong>
+        <span>PATCH · {primary.footprint} CHANNELS</span>
+        <label><small>Universe</small><input type="number" min={1} max={universeCount} value={patchUniverse} onChange={(event) => setPatchUniverse(Number(event.target.value))} /></label>
+        <label><small>Address</small><input type="number" min={1} max={513 - primary.footprint} value={patchAddress} onChange={(event) => setPatchAddress(Number(event.target.value))} /></label>
+        <button disabled={operationMode === "live"} onClick={() => patchFixture(primary.id, patchUniverse, patchAddress)}>APPLY</button>
+        <button className="add-universe-button" disabled={operationMode === "live"} onClick={addUniverse}>＋ UNIVERSE</button>
       </div>
     </aside>
+  );
+}
+
+function LayoutNumber({
+  label,
+  value,
+  min,
+  onStart,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  onStart: () => void;
+  onCommit: (value: number) => void;
+}) {
+  return (
+    <label className="layout-number-field">
+      <span>{label}</span>
+      <input
+        key={`${label}-${value}`}
+        type="number"
+        step={0.1}
+        min={min}
+        defaultValue={Number(value.toFixed(2))}
+        onFocus={onStart}
+        onBlur={(event) => {
+          const next = Number(event.target.value);
+          if (Number.isFinite(next)) onCommit(next);
+        }}
+      />
+    </label>
   );
 }
 

@@ -7,7 +7,8 @@ export function StageToolbar() {
   const undo = useShowStore((state) => state.undo);
   const redo = useShowStore((state) => state.redo);
   const duplicate = useShowStore((state) => state.duplicateSelection);
-  const setBackground = useShowStore((state) => state.setBackground);
+  const importBackground = useShowStore((state) => state.importBackground);
+  const removeBackground = useShowStore((state) => state.removeBackground);
   const background = useShowStore((state) => state.background);
 
   return (
@@ -36,8 +37,8 @@ export function StageToolbar() {
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (!file) return;
-          if (background?.url.startsWith("blob:")) URL.revokeObjectURL(background.url);
-          setBackground({ url: URL.createObjectURL(file), name: file.name, opacity: 0.55, locked: true });
+          void importBackground(file);
+          event.currentTarget.value = "";
         }}
       />
       {background ? (
@@ -45,8 +46,7 @@ export function StageToolbar() {
           className="background-chip"
           title={background.name}
           onClick={() => {
-            if (background.url.startsWith("blob:")) URL.revokeObjectURL(background.url);
-            setBackground(undefined);
+            removeBackground();
           }}
         >
           ◫ {background.name} <span>×</span>

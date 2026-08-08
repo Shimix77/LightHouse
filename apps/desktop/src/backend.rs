@@ -10,6 +10,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use lighthouse_commands::{
     Command, CommandEnvelope, CueEntryData, CueListData, FixtureParameterValues, OperationMode,
     PriorityLane, SceneData,
@@ -130,6 +132,27 @@ impl DesktopBackend {
         self.refresh()
     }
 
+    pub fn project_command(
+        &mut self,
+        command: UiProjectCommand,
+    ) -> Result<UiBootstrap, BackendError> {
+        let (snapshot, _) = self.request_snapshot_with_restart()?;
+        if snapshot.operation_mode != OperationMode::Edit {
+            return Err(BackendError::InvalidCommand(
+                "project structure can only be changed in EDIT mode".into(),
+            ));
+        }
+        let mut next = self.bundle.clone();
+        let restart_required = apply_project_command(&mut next, command)?;
+        next.validate()?;
+        ProjectStore::save_atomic(&self.project_path, &next)?;
+        self.bundle = next;
+        if restart_required {
+            self.restart_engine()?;
+        }
+        self.bootstrap()
+    }
+
     fn request_snapshot_with_restart(
         &mut self,
     ) -> Result<(ShowSnapshot, EngineTelemetry), BackendError> {
@@ -143,6 +166,7 @@ impl DesktopBackend {
     }
 
     fn restart_engine(&mut self) -> Result<(), BackendError> {
+        let _ = self.session.shutdown();
         self.session = EngineSession::spawn(&self.app_data_dir, &self.project_path)?;
         Ok(())
     }
@@ -199,6 +223,53 @@ pub enum UiEngineCommand {
         bpm: f64,
     },
     TapTempo,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "type", content = "data")]
+pub enum UiProjectCommand {
+    UpdateLayouts {
+        layouts: Vec<UiLayoutUpdate>,
+    },
+    PatchFixture {
+        fixture_id: String,
+        universe: u32,
+        address: u16,
+    },
+    AddFixture {
+        name: String,
+        definition_id: String,
+        mode_id: String,
+        x: f64,
+        y: f64,
+    },
+    DuplicateFixtures {
+        fixture_ids: Vec<String>,
+    },
+    DeleteFixtures {
+        fixture_ids: Vec<String>,
+    },
+    AddUniverse,
+    PutBackground {
+        name: String,
+        mime: String,
+        bytes: Vec<u8>,
+    },
+    RemoveBackground,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiLayoutUpdate {
+    fixture_id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    rotation: f64,
+    locked: bool,
+    hidden: bool,
+    layer: String,
 }
 
 impl UiEngineCommand {
@@ -302,7 +373,18 @@ struct UiProjectView {
     scenes: Vec<UiSceneView>,
     cue_lists: Vec<UiCueListView>,
     effects: Vec<UiEffectView>,
+    fixture_definitions: Vec<UiFixtureDefinitionView>,
+    background: Option<UiBackgroundView>,
     universe_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiBackgroundView {
+    name: String,
+    data_url: String,
+    opacity: f64,
+    locked: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -311,10 +393,15 @@ struct UiFixtureView {
     id: String,
     name: String,
     kind: String,
+    definition_id: String,
+    mode_id: String,
+    footprint: u16,
     universe: u32,
     address: u16,
     x: f64,
     y: f64,
+    width: f64,
+    height: f64,
     rotation: f64,
     intensity: f64,
     color: String,
@@ -322,7 +409,25 @@ struct UiFixtureView {
     tilt: f64,
     zoom: f64,
     locked: bool,
+    hidden: bool,
     layer: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiFixtureDefinitionView {
+    id: String,
+    manufacturer: String,
+    model: String,
+    modes: Vec<UiFixtureModeView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiFixtureModeView {
+    id: String,
+    name: String,
+    footprint: u16,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -424,10 +529,18 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
                 id: fixture.id.0.to_string(),
                 name: fixture.name.clone(),
                 kind: fixture_kind(fixture),
+                definition_id: fixture.definition_id.clone(),
+                mode_id: fixture.mode_id.clone(),
+                footprint: patch_record.map_or_else(
+                    || fixture_mode_footprint(bundle, fixture).unwrap_or(1),
+                    |record| record.footprint,
+                ),
                 universe: patch_record.map_or(0, |record| record.universe_id.0),
                 address: patch_record.map_or(0, |record| record.start_address),
                 x: layout_record.map_or(0.0, |record| record.transform.x_meters),
                 y: layout_record.map_or(0.0, |record| record.transform.y_meters),
+                width: layout_record.map_or(0.65, |record| record.transform.width_meters),
+                height: layout_record.map_or(0.65, |record| record.transform.height_meters),
                 rotation: layout_record.map_or(0.0, |record| record.transform.rotation_degrees),
                 intensity: parameter(values, "intensity", 0.0),
                 color: rgb_hex(values),
@@ -435,6 +548,7 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
                 tilt: parameter(values, "position.tilt", 0.5),
                 zoom: parameter(values, "beam.zoom", 0.5),
                 locked: layout_record.is_some_and(|record| record.locked),
+                hidden: layout_record.is_some_and(|record| record.hidden),
                 layer: layout_record
                     .map_or_else(|| "Fixtures".into(), |record| record.layer.clone()),
             }
@@ -486,14 +600,56 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
             beat_sync: effect.beat_sync,
         })
         .collect();
+    let fixture_definitions = bundle
+        .fixture_definitions
+        .iter()
+        .map(|definition| UiFixtureDefinitionView {
+            id: definition.id.clone(),
+            manufacturer: definition.manufacturer.clone(),
+            model: definition.model.clone(),
+            modes: definition
+                .modes
+                .iter()
+                .map(|mode| UiFixtureModeView {
+                    id: mode.id.clone(),
+                    name: mode.name.clone(),
+                    footprint: mode.footprint,
+                })
+                .collect(),
+        })
+        .collect();
     UiProjectView {
         name: bundle.project.name.clone(),
         fixtures,
         scenes,
         cue_lists,
         effects,
+        fixture_definitions,
+        background: background_view(bundle),
         universe_count: bundle.project.universes.len(),
     }
+}
+
+fn background_view(bundle: &ProjectBundle) -> Option<UiBackgroundView> {
+    bundle.project.layout_objects.iter().find_map(|record| {
+        let LayoutObjectKind::BackgroundImage { asset_path } = &record.kind else {
+            return None;
+        };
+        let bytes = bundle.assets.get(asset_path)?;
+        let mime = if asset_path.ends_with(".png") {
+            "image/png"
+        } else if asset_path.ends_with(".jpg") || asset_path.ends_with(".jpeg") {
+            "image/jpeg"
+        } else {
+            return None;
+        };
+        Some(UiBackgroundView {
+            name: record.name.clone(),
+            data_url: format!("data:{mime};base64,{}", BASE64_STANDARD.encode(bytes)),
+            opacity: record.opacity.get(),
+            locked: record.locked,
+        })
+    })
 }
 
 fn engine_view(snapshot: ShowSnapshot, telemetry: EngineTelemetry) -> UiEngineView {
@@ -551,6 +707,23 @@ fn fixture_kind(fixture: &FixtureRecord) -> String {
         "dimmer"
     }
     .into()
+}
+
+fn fixture_mode_footprint(bundle: &ProjectBundle, fixture: &FixtureRecord) -> Option<u16> {
+    bundle
+        .fixture_definitions
+        .iter()
+        .find(|definition| {
+            definition.id == fixture.definition_id
+                && definition.revision == fixture.definition_revision
+        })
+        .and_then(|definition| {
+            definition
+                .modes
+                .iter()
+                .find(|mode| mode.id == fixture.mode_id)
+        })
+        .map(|mode| mode.footprint)
 }
 
 fn parameter(
@@ -691,6 +864,26 @@ impl EngineSession {
         }
     }
 
+    fn shutdown(&mut self) -> Result<(), BackendError> {
+        match self.request(ClientMessage::Shutdown)? {
+            ServerMessage::ShuttingDown => {}
+            other => return Err(BackendError::UnexpectedMessage(format!("{other:?}"))),
+        }
+        if let Some(child) = self.child.as_mut() {
+            for _ in 0..50 {
+                if child.try_wait()?.is_some() {
+                    return Ok(());
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            return Err(BackendError::Engine(
+                "engine did not stop within one second".into(),
+            ));
+        }
+        thread::sleep(Duration::from_millis(40));
+        Ok(())
+    }
+
     fn connect(&self) -> Result<TcpStream, BackendError> {
         let address: SocketAddr = self
             .record
@@ -762,6 +955,429 @@ fn locate_engine_binary() -> Result<PathBuf, BackendError> {
         return Ok(workspace_binary);
     }
     Err(BackendError::EngineBinaryNotFound(workspace_binary))
+}
+
+fn apply_project_command(
+    bundle: &mut ProjectBundle,
+    command: UiProjectCommand,
+) -> Result<bool, BackendError> {
+    match command {
+        UiProjectCommand::UpdateLayouts { layouts } => {
+            for update in layouts {
+                if ![
+                    update.x,
+                    update.y,
+                    update.width,
+                    update.height,
+                    update.rotation,
+                ]
+                .into_iter()
+                .all(f64::is_finite)
+                    || update.width <= 0.0
+                    || update.height <= 0.0
+                {
+                    return Err(BackendError::InvalidCommand(
+                        "layout transform must contain finite values and positive size".into(),
+                    ));
+                }
+                let fixture_id = FixtureId::new(parse_id(&update.fixture_id)?);
+                let layout = bundle
+                    .project
+                    .layout_objects
+                    .iter_mut()
+                    .find(|record| {
+                        matches!(record.kind, LayoutObjectKind::Fixture { fixture_id: id } if id == fixture_id)
+                    })
+                    .ok_or_else(|| {
+                        BackendError::InvalidCommand(format!(
+                            "layout object for fixture {} was not found",
+                            update.fixture_id
+                        ))
+                    })?;
+                layout.transform.x_meters = update.x;
+                layout.transform.y_meters = update.y;
+                layout.transform.width_meters = update.width;
+                layout.transform.height_meters = update.height;
+                layout.transform.rotation_degrees = update.rotation.rem_euclid(360.0);
+                layout.locked = update.locked;
+                layout.hidden = update.hidden;
+                layout.layer = update.layer.trim().to_owned();
+                if layout.layer.is_empty() {
+                    layout.layer = "Fixtures".into();
+                }
+            }
+            Ok(false)
+        }
+        UiProjectCommand::PatchFixture {
+            fixture_id,
+            universe,
+            address,
+        } => {
+            let fixture_id = FixtureId::new(parse_id(&fixture_id)?);
+            if !bundle
+                .project
+                .fixtures
+                .iter()
+                .any(|fixture| fixture.id == fixture_id)
+            {
+                return Err(BackendError::InvalidCommand(
+                    "patched fixture was not found".into(),
+                ));
+            }
+            let existing = bundle
+                .project
+                .patch
+                .iter()
+                .find(|record| record.fixture_id == fixture_id)
+                .copied();
+            bundle
+                .project
+                .patch
+                .retain(|record| record.fixture_id != fixture_id);
+            if universe == 0 || address == 0 {
+                return Ok(true);
+            }
+            let universe_id = UniverseId::new(universe);
+            if !bundle
+                .project
+                .universes
+                .iter()
+                .any(|record| record.id == universe_id)
+            {
+                return Err(BackendError::InvalidCommand(format!(
+                    "universe {universe} does not exist"
+                )));
+            }
+            let footprint = existing
+                .map(|record| record.footprint)
+                .unwrap_or(mode_footprint(bundle, fixture_id)?);
+            bundle.project.patch.push(PatchRecord {
+                fixture_id,
+                universe_id,
+                start_address: address,
+                footprint,
+            });
+            Ok(true)
+        }
+        UiProjectCommand::AddFixture {
+            name,
+            definition_id,
+            mode_id,
+            x,
+            y,
+        } => {
+            if !x.is_finite() || !y.is_finite() {
+                return Err(BackendError::InvalidCommand(
+                    "fixture position must be finite".into(),
+                ));
+            }
+            let definition = bundle
+                .fixture_definitions
+                .iter()
+                .find(|definition| definition.id == definition_id)
+                .ok_or_else(|| {
+                    BackendError::InvalidCommand("fixture definition was not found".into())
+                })?;
+            let mode = definition
+                .modes
+                .iter()
+                .find(|mode| mode.id == mode_id)
+                .ok_or_else(|| BackendError::InvalidCommand("fixture mode was not found".into()))?;
+            let revision = definition.revision.clone();
+            let model = definition.model.clone();
+            let footprint = mode.footprint;
+            let fixture_id = FixtureId::new(Uuid::new_v4().as_u128());
+            let (universe_id, start_address) = auto_patch(bundle, footprint)?;
+            bundle.project.fixtures.push(FixtureRecord {
+                id: fixture_id,
+                name: non_empty_name(name, &model),
+                definition_id,
+                definition_revision: revision,
+                mode_id,
+                enabled: true,
+                invert_pan: false,
+                invert_tilt: false,
+            });
+            bundle.project.patch.push(PatchRecord {
+                fixture_id,
+                universe_id,
+                start_address,
+                footprint,
+            });
+            bundle.project.layout_objects.push(fixture_layout(
+                fixture_id,
+                bundle.project.fixtures.last().unwrap().name.clone(),
+                x,
+                y,
+                bundle.project.layout_objects.len() as i32,
+            ));
+            Ok(true)
+        }
+        UiProjectCommand::DuplicateFixtures { fixture_ids } => {
+            let ids = parse_fixture_ids(&fixture_ids)?;
+            for source_id in ids {
+                let source = bundle
+                    .project
+                    .fixtures
+                    .iter()
+                    .find(|fixture| fixture.id == source_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        BackendError::InvalidCommand("fixture to duplicate was not found".into())
+                    })?;
+                let source_layout = bundle
+                    .project
+                    .layout_objects
+                    .iter()
+                    .find(|record| matches!(record.kind, LayoutObjectKind::Fixture { fixture_id } if fixture_id == source_id))
+                    .cloned();
+                let footprint = mode_footprint(bundle, source_id)?;
+                let (universe_id, start_address) = auto_patch(bundle, footprint)?;
+                let fixture_id = FixtureId::new(Uuid::new_v4().as_u128());
+                let mut duplicate = source;
+                duplicate.id = fixture_id;
+                duplicate.name = format!("{} Copy", duplicate.name);
+                bundle.project.fixtures.push(duplicate.clone());
+                bundle.project.patch.push(PatchRecord {
+                    fixture_id,
+                    universe_id,
+                    start_address,
+                    footprint,
+                });
+                let mut layout = source_layout.unwrap_or_else(|| {
+                    fixture_layout(fixture_id, duplicate.name.clone(), 0.0, 0.0, 0)
+                });
+                layout.id = LayoutObjectId::new(Uuid::new_v4().as_u128());
+                layout.name = duplicate.name;
+                layout.kind = LayoutObjectKind::Fixture { fixture_id };
+                layout.transform.x_meters += 0.6;
+                layout.transform.y_meters += 0.6;
+                layout.transform.z_index = bundle.project.layout_objects.len() as i32;
+                bundle.project.layout_objects.push(layout);
+            }
+            Ok(true)
+        }
+        UiProjectCommand::DeleteFixtures { fixture_ids } => {
+            let ids = parse_fixture_ids(&fixture_ids)?;
+            bundle
+                .project
+                .fixtures
+                .retain(|fixture| !ids.contains(&fixture.id));
+            bundle
+                .project
+                .patch
+                .retain(|patch| !ids.contains(&patch.fixture_id));
+            bundle.project.layout_objects.retain(|layout| {
+                !matches!(layout.kind, LayoutObjectKind::Fixture { fixture_id } if ids.contains(&fixture_id))
+            });
+            for group in &mut bundle.project.groups {
+                group
+                    .fixture_ids
+                    .retain(|fixture_id| !ids.contains(fixture_id));
+            }
+            for scene in &mut bundle.project.scenes {
+                scene
+                    .values
+                    .retain(|fixture_id, _| !ids.contains(fixture_id));
+            }
+            Ok(true)
+        }
+        UiProjectCommand::AddUniverse => {
+            add_universe(bundle);
+            Ok(false)
+        }
+        UiProjectCommand::PutBackground { name, mime, bytes } => {
+            if bytes.len() > 12 * 1024 * 1024 {
+                return Err(BackendError::InvalidCommand(
+                    "floor plan image must be 12 MB or smaller".into(),
+                ));
+            }
+            let extension = validated_image_extension(&mime, &bytes)?;
+            remove_background(bundle);
+            let asset_path = format!("assets/floor-plan.{extension}");
+            bundle.assets.insert(asset_path.clone(), bytes);
+            bundle.project.layout_objects.push(LayoutObjectRecord {
+                id: LayoutObjectId::new(Uuid::new_v4().as_u128()),
+                name: non_empty_name(name, "Floor Plan"),
+                kind: LayoutObjectKind::BackgroundImage { asset_path },
+                transform: LayoutTransform {
+                    x_meters: 0.0,
+                    y_meters: 0.0,
+                    width_meters: 10.0,
+                    height_meters: 10.0,
+                    rotation_degrees: 0.0,
+                    z_index: i32::MIN,
+                },
+                layer: "Floor Plan".into(),
+                locked: true,
+                hidden: false,
+                opacity: NormalizedValue::clamped(0.55),
+            });
+            Ok(false)
+        }
+        UiProjectCommand::RemoveBackground => {
+            remove_background(bundle);
+            Ok(false)
+        }
+    }
+}
+
+fn validated_image_extension(mime: &str, bytes: &[u8]) -> Result<&'static str, BackendError> {
+    match mime {
+        "image/png" if bytes.starts_with(b"\x89PNG\r\n\x1a\n") => Ok("png"),
+        "image/jpeg" if bytes.starts_with(&[0xff, 0xd8, 0xff]) => Ok("jpg"),
+        "image/png" | "image/jpeg" => Err(BackendError::InvalidCommand(
+            "floor plan contents do not match the selected image type".into(),
+        )),
+        _ => Err(BackendError::InvalidCommand(
+            "floor plan must be a PNG or JPEG image".into(),
+        )),
+    }
+}
+
+fn remove_background(bundle: &mut ProjectBundle) {
+    let paths: Vec<_> = bundle
+        .project
+        .layout_objects
+        .iter()
+        .filter_map(|record| match &record.kind {
+            LayoutObjectKind::BackgroundImage { asset_path } => Some(asset_path.clone()),
+            _ => None,
+        })
+        .collect();
+    bundle
+        .project
+        .layout_objects
+        .retain(|record| !matches!(&record.kind, LayoutObjectKind::BackgroundImage { .. }));
+    for path in paths {
+        bundle.assets.remove(&path);
+    }
+}
+
+fn parse_fixture_ids(values: &[String]) -> Result<Vec<FixtureId>, BackendError> {
+    values
+        .iter()
+        .map(|value| parse_id(value).map(FixtureId::new))
+        .collect()
+}
+
+fn non_empty_name(value: String, fallback: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        fallback.into()
+    } else {
+        value.into()
+    }
+}
+
+fn fixture_layout(
+    fixture_id: FixtureId,
+    name: String,
+    x: f64,
+    y: f64,
+    z_index: i32,
+) -> LayoutObjectRecord {
+    LayoutObjectRecord {
+        id: LayoutObjectId::new(Uuid::new_v4().as_u128()),
+        name,
+        kind: LayoutObjectKind::Fixture { fixture_id },
+        transform: LayoutTransform {
+            x_meters: x,
+            y_meters: y,
+            width_meters: 0.65,
+            height_meters: 0.65,
+            rotation_degrees: 0.0,
+            z_index,
+        },
+        layer: "Fixtures".into(),
+        locked: false,
+        hidden: false,
+        opacity: NormalizedValue::FULL,
+    }
+}
+
+fn mode_footprint(bundle: &ProjectBundle, fixture_id: FixtureId) -> Result<u16, BackendError> {
+    let fixture = bundle
+        .project
+        .fixtures
+        .iter()
+        .find(|fixture| fixture.id == fixture_id)
+        .ok_or_else(|| BackendError::InvalidCommand("fixture was not found".into()))?;
+    bundle
+        .fixture_definitions
+        .iter()
+        .find(|definition| {
+            definition.id == fixture.definition_id
+                && definition.revision == fixture.definition_revision
+        })
+        .and_then(|definition| {
+            definition
+                .modes
+                .iter()
+                .find(|mode| mode.id == fixture.mode_id)
+        })
+        .map(|mode| mode.footprint)
+        .ok_or_else(|| BackendError::InvalidCommand("fixture mode was not found".into()))
+}
+
+fn auto_patch(
+    bundle: &mut ProjectBundle,
+    footprint: u16,
+) -> Result<(UniverseId, u16), BackendError> {
+    let mut universes: Vec<_> = bundle
+        .project
+        .universes
+        .iter()
+        .map(|record| record.id)
+        .collect();
+    universes.sort_unstable();
+    for universe_id in universes {
+        for address in 1..=513_u16.saturating_sub(footprint) {
+            if slots_available(bundle, universe_id, address, footprint) {
+                return Ok((universe_id, address));
+            }
+        }
+    }
+    let universe_id = add_universe(bundle);
+    Ok((universe_id, 1))
+}
+
+fn slots_available(
+    bundle: &ProjectBundle,
+    universe_id: UniverseId,
+    address: u16,
+    footprint: u16,
+) -> bool {
+    let end = address.saturating_add(footprint.saturating_sub(1));
+    end <= 512
+        && bundle.project.patch.iter().all(|record| {
+            if record.universe_id != universe_id {
+                return true;
+            }
+            let record_end = record
+                .start_address
+                .saturating_add(record.footprint.saturating_sub(1));
+            end < record.start_address || address > record_end
+        })
+}
+
+fn add_universe(bundle: &mut ProjectBundle) -> UniverseId {
+    let next = bundle
+        .project
+        .universes
+        .iter()
+        .map(|record| record.id.0)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let id = UniverseId::new(next);
+    bundle.project.universes.push(UniverseRecord {
+        id,
+        name: format!("Universe {next}"),
+        enabled: true,
+        routes: Vec::new(),
+    });
+    id
 }
 
 fn parse_id(value: &str) -> Result<u128, BackendError> {
@@ -1146,6 +1762,138 @@ mod tests {
     }
 
     #[test]
+    fn project_editor_auto_patches_and_validates_new_fixtures() {
+        let mut bundle = demo_project().unwrap();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::AddFixture {
+                name: "House Dimmer".into(),
+                definition_id: "generic.dimmer".into(),
+                mode_id: "1ch".into(),
+                x: 2.0,
+                y: 3.0,
+            },
+        )
+        .unwrap();
+        assert!(restart);
+        assert_eq!(bundle.project.fixtures.len(), 7);
+        assert_eq!(bundle.project.patch.len(), 7);
+        assert!(bundle.validate().is_ok());
+        let patch = bundle.project.patch.last().unwrap();
+        assert_eq!(patch.universe_id, UniverseId::new(1));
+        assert_eq!(patch.start_address, 42);
+    }
+
+    #[test]
+    fn project_editor_rejects_patch_conflicts_before_save() {
+        let mut bundle = demo_project().unwrap();
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PatchFixture {
+                fixture_id: "102".into(),
+                universe: 1,
+                address: 1,
+            },
+        )
+        .unwrap();
+        assert!(bundle.validate().is_err());
+    }
+
+    #[test]
+    fn layout_updates_are_persistent_without_engine_restart() {
+        let mut bundle = demo_project().unwrap();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::UpdateLayouts {
+                layouts: vec![UiLayoutUpdate {
+                    fixture_id: "101".into(),
+                    x: 8.0,
+                    y: -2.0,
+                    width: 1.2,
+                    height: 0.8,
+                    rotation: 450.0,
+                    locked: true,
+                    hidden: false,
+                    layer: "Front Truss".into(),
+                }],
+            },
+        )
+        .unwrap();
+        assert!(!restart);
+        let layout = &bundle.project.layout_objects[0];
+        assert_eq!(layout.transform.x_meters, 8.0);
+        assert_eq!(layout.transform.rotation_degrees, 90.0);
+        assert_eq!(layout.layer, "Front Truss");
+        assert!(layout.locked);
+    }
+
+    #[test]
+    fn floor_plan_image_round_trips_inside_the_project_file() {
+        let mut bundle = demo_project().unwrap();
+        let png = b"\x89PNG\r\n\x1a\nminimal-test-image".to_vec();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutBackground {
+                name: "Venue plan.png".into(),
+                mime: "image/png".into(),
+                bytes: png.clone(),
+            },
+        )
+        .unwrap();
+        assert!(!restart);
+        assert_eq!(bundle.assets.get("assets/floor-plan.png"), Some(&png));
+        let background = background_view(&bundle).unwrap();
+        assert_eq!(background.name, "Venue plan.png");
+        assert!(background.data_url.starts_with("data:image/png;base64,"));
+
+        let directory = test_directory();
+        fs::create_dir_all(&directory).unwrap();
+        let project_path = directory.join("background.lightshow");
+        ProjectStore::save_atomic(&project_path, &bundle).unwrap();
+        let loaded = ProjectStore::load(&project_path).unwrap().bundle;
+        assert_eq!(loaded.assets.get("assets/floor-plan.png"), Some(&png));
+        assert!(background_view(&loaded).is_some());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn floor_plan_rejects_invalid_or_oversized_images_and_can_be_removed() {
+        let mut bundle = demo_project().unwrap();
+        let invalid = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutBackground {
+                name: "not-really.png".into(),
+                mime: "image/png".into(),
+                bytes: b"not a png".to_vec(),
+            },
+        );
+        assert!(matches!(invalid, Err(BackendError::InvalidCommand(_))));
+
+        let oversized = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutBackground {
+                name: "large.jpg".into(),
+                mime: "image/jpeg".into(),
+                bytes: vec![0xff; 12 * 1024 * 1024 + 1],
+            },
+        );
+        assert!(matches!(oversized, Err(BackendError::InvalidCommand(_))));
+
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutBackground {
+                name: "plan.jpg".into(),
+                mime: "image/jpeg".into(),
+                bytes: vec![0xff, 0xd8, 0xff, 0xd9],
+            },
+        )
+        .unwrap();
+        apply_project_command(&mut bundle, UiProjectCommand::RemoveBackground).unwrap();
+        assert!(background_view(&bundle).is_none());
+        assert!(bundle.assets.is_empty());
+    }
+
+    #[test]
     fn desktop_backend_round_trips_commands_through_the_sidecar() {
         let directory = test_directory();
         let mut backend = DesktopBackend::open(directory.clone()).unwrap();
@@ -1166,10 +1914,33 @@ mod tests {
             .unwrap();
         assert_eq!(scene.active_scene_ids, vec!["201"]);
 
-        if let Some(child) = backend.session.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        let updated = backend
+            .project_command(UiProjectCommand::UpdateLayouts {
+                layouts: vec![UiLayoutUpdate {
+                    fixture_id: "101".into(),
+                    x: 7.5,
+                    y: -1.0,
+                    width: 0.9,
+                    height: 0.7,
+                    rotation: 30.0,
+                    locked: false,
+                    hidden: false,
+                    layer: "Front".into(),
+                }],
+            })
+            .unwrap();
+        assert_eq!(updated.project.fixtures[0].x, 7.5);
+        let repatched = backend
+            .project_command(UiProjectCommand::PatchFixture {
+                fixture_id: "106".into(),
+                universe: 1,
+                address: 42,
+            })
+            .unwrap();
+        assert_eq!(repatched.project.fixtures[5].address, 42);
+        assert!(backend.refresh().unwrap().connected);
+
+        backend.session.shutdown().unwrap();
         drop(backend);
         fs::remove_dir_all(directory).unwrap();
     }
