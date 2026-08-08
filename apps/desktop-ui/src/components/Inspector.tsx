@@ -10,6 +10,8 @@ export function Inspector() {
   const selectedStageObjectIds = useShowStore((state) => state.selectedStageObjectIds);
   const captureHistory = useShowStore((state) => state.captureFixtureHistory);
   const updateSelected = useShowStore((state) => state.updateSelectedFixtures);
+  const setSelectedParameter = useShowStore((state) => state.setSelectedParameter);
+  const fixtureDefinitions = useShowStore((state) => state.fixtureDefinitions);
   const updateSelectedStageObjects = useShowStore((state) => state.updateSelectedStageObjects);
   const patchFixture = useShowStore((state) => state.patchFixture);
   const addUniverse = useShowStore((state) => state.addUniverse);
@@ -17,6 +19,20 @@ export function Inspector() {
   const operationMode = useShowStore((state) => state.mode);
   const selected = fixtures.filter((fixtureItem) => selectedIds.includes(fixtureItem.id));
   const primary = selected[0];
+  const selectedMode = primary
+    ? fixtureDefinitions
+        .find((definition) => definition.id === primary.definitionId)
+        ?.modes.find((mode) => mode.id === primary.modeId)
+    : undefined;
+  const additionalParameters = selectedMode?.parameters.filter((parameter) => ![
+    "intensity",
+    "color.red",
+    "color.green",
+    "color.blue",
+    "position.pan",
+    "position.tilt",
+    "beam.zoom",
+  ].includes(parameter.id)) ?? [];
   const selectedStageObjects = stageObjects.filter((stageObject) =>
     selectedStageObjectIds.includes(stageObject.id),
   );
@@ -121,6 +137,25 @@ export function Inspector() {
       <InspectorSection title="Beam" open>
         <Fader label="Zoom" value={primary.zoom} onStart={captureHistory} onChange={(zoom) => updateSelected({ zoom })} />
       </InspectorSection>
+
+      {additionalParameters.length > 0 && (
+        <InspectorSection title="Fixture Channels" open>
+          {additionalParameters.map((parameter) => (
+            <div className="parameter-fader" key={parameter.id}>
+              <small>
+                CH {parameter.coarseChannel}{parameter.fineChannel ? ` + ${parameter.fineChannel}` : ""}
+                {` · ${parameter.resolution}-BIT · ${parameter.capability.toUpperCase()}`}
+              </small>
+              <Fader
+                label={parameter.name}
+                value={primary.parameters[parameter.id] ?? parameter.defaultValue}
+                onStart={captureHistory}
+                onChange={(value) => setSelectedParameter(parameter.id, value)}
+              />
+            </div>
+          ))}
+        </InspectorSection>
+      )}
 
       <InspectorSection title="Stage Layout" open>
         <div className="layout-field-grid">

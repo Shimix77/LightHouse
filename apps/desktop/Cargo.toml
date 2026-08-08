@@ -18,6 +18,7 @@ lighthouse-commands = { path = "../../crates/commands" }
 lighthouse-domain = { path = "../../crates/domain" }
 lighthouse-effects = { path = "../../crates/effects" }
 lighthouse-fixture-library = { path = "../../crates/fixture-library" }
+lighthouse-fixture-model = { path = "../../crates/fixture-model" }
 lighthouse-ipc = { path = "../../crates/ipc" }
 lighthouse-persistence = { path = "../../crates/persistence" }
 lighthouse-show-engine = { path = "../../crates/show-engine" }

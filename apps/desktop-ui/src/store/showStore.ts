@@ -8,6 +8,7 @@ import {
 import type {
   BeatSource,
   CueListSummary,
+  CustomFixtureInput,
   EffectSummary,
   EngineBootstrap,
   EngineCommand,
@@ -65,6 +66,7 @@ interface ShowUiState {
   captureFixtureHistory: () => void;
   moveFixtures: (ids: string[], deltaX: number, deltaY: number) => void;
   updateSelectedFixtures: (update: Partial<LayoutFixture>) => void;
+  setSelectedParameter: (parameterId: string, value: number) => void;
   moveStageObjects: (ids: string[], deltaX: number, deltaY: number) => void;
   updateSelectedStageObjects: (update: Partial<StageObject>) => void;
   setGrandMaster: (value: number) => void;
@@ -89,6 +91,7 @@ interface ShowUiState {
   deleteSelection: () => void;
   patchFixture: (fixtureId: string, universe: number, address: number) => void;
   addFixture: (definitionId: string, modeId: string, name: string) => void;
+  putCustomFixture: (fixture: CustomFixtureInput) => Promise<string | null>;
   addUniverse: () => void;
   addStageObject: (kind: StageObjectKind, name: string) => void;
   putGroup: (groupId: string | null, name: string, fixtureIds: string[]) => void;
@@ -129,9 +132,9 @@ const initialScenes: SceneSummary[] = [
 ];
 
 const initialFixtureDefinitions: FixtureDefinitionSummary[] = [
-  { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", modes: [{ id: "1ch", name: "1 Channel", footprint: 1 }] },
-  { id: "generic.rgbw-par", manufacturer: "LightHouse", model: "Generic RGBW PAR", modes: [{ id: "5ch", name: "Intensity + RGBW", footprint: 5 }] },
-  { id: "generic.moving-head-16bit", manufacturer: "LightHouse", model: "Generic 16-bit Moving Head", modes: [{ id: "10ch", name: "Pan/Tilt 16-bit + RGB + Beam", footprint: 10 }] },
+  { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", source: "generic", modes: [{ id: "1ch", name: "1 Channel", footprint: 1, parameters: [] }] },
+  { id: "generic.rgbw-par", manufacturer: "LightHouse", model: "Generic RGBW PAR", source: "generic", modes: [{ id: "5ch", name: "Intensity + RGBW", footprint: 5, parameters: [] }] },
+  { id: "generic.moving-head-16bit", manufacturer: "LightHouse", model: "Generic 16-bit Moving Head", source: "generic", modes: [{ id: "10ch", name: "Pan/Tilt 16-bit + RGB + Beam", footprint: 10, parameters: [] }] },
 ];
 
 export const useShowStore = create<ShowUiState>((set, get) => {
@@ -278,6 +281,21 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       if (["x", "y", "width", "height", "rotation", "locked", "hidden", "layer"]
         .some((property) => property in update)) {
         persistLayouts(selectedIds);
+      }
+    },
+    setSelectedParameter: (parameterId, value) => {
+      const normalized = clamp(value);
+      const selectedIds = get().selectedFixtureIds;
+      set((state) => ({
+        fixtures: state.fixtures.map((fixtureItem) => selectedIds.includes(fixtureItem.id)
+          ? { ...fixtureItem, parameters: { ...fixtureItem.parameters, [parameterId]: normalized } }
+          : fixtureItem),
+      }));
+      for (const fixtureId of selectedIds) {
+        dispatch(
+          { type: "setFixtureParameter", data: { fixtureId, parameterId, value: normalized } },
+          `${fixtureId}:${parameterId}`,
+        );
       }
     },
     moveStageObjects: (ids, deltaX, deltaY) => {
@@ -531,6 +549,14 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         type: "addFixture",
         data: { definitionId, modeId, name, x: 0, y: 0 },
       }),
+    putCustomFixture: async (fixture) => {
+      const definitionId = `custom.${crypto.randomUUID()}`;
+      const saved = await mutateProject({
+        type: "putCustomFixtureDefinition",
+        data: { ...fixture, definitionId },
+      });
+      return saved ? definitionId : null;
+    },
     addUniverse: () => { void mutateProject({ type: "addUniverse" }); },
     addStageObject: (kind, name) => {
       void mutateProject({ type: "addStageObject", data: { kind, name, x: 0, y: 0 } });
@@ -745,6 +771,12 @@ function syncFixtureParameters(fixtures: LayoutFixture[], dispatch: EngineDispat
       tilt: fixtureItem.tilt,
       zoom: fixtureItem.zoom,
     }, dispatch);
+    for (const [parameterId, value] of Object.entries(fixtureItem.parameters)) {
+      dispatch(
+        { type: "setFixtureParameter", data: { fixtureId: fixtureItem.id, parameterId, value } },
+        `${fixtureItem.id}:${parameterId}`,
+      );
+    }
   }
 }
 
@@ -769,6 +801,7 @@ function applyFixtureValues(
     pan: parameters["position.pan"] ?? fixtureItem.pan,
     tilt: parameters["position.tilt"] ?? fixtureItem.tilt,
     zoom: parameters["beam.zoom"] ?? fixtureItem.zoom,
+    parameters: { ...fixtureItem.parameters, ...parameters },
   };
 }
 
@@ -821,6 +854,7 @@ function fixture(
     pan: 0.5,
     tilt: 0.5,
     zoom: 0.45,
+    parameters: {},
     locked: false,
     hidden: false,
     layer: "Fixtures",
@@ -829,7 +863,10 @@ function fixture(
 
 function snapshot(fixtures: LayoutFixture[], stageObjects: StageObject[]): FixtureSnapshot {
   return {
-    fixtures: fixtures.map((fixtureItem) => ({ ...fixtureItem })),
+    fixtures: fixtures.map((fixtureItem) => ({
+      ...fixtureItem,
+      parameters: { ...fixtureItem.parameters },
+    })),
     stageObjects: stageObjects.map((stageObject) => ({ ...stageObject })),
   };
 }

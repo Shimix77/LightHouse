@@ -27,6 +27,7 @@ export interface LayoutFixture {
   pan: number;
   tilt: number;
   zoom: number;
+  parameters: Record<string, number>;
   locked: boolean;
   hidden: boolean;
   layer: string;
@@ -36,13 +37,45 @@ export interface FixtureModeSummary {
   id: string;
   name: string;
   footprint: number;
+  parameters: FixtureParameterSummary[];
+}
+
+export interface FixtureParameterSummary {
+  id: string;
+  name: string;
+  capability: "intensity" | "color" | "position" | "beam" | "shutter" | "gobo" | "custom";
+  defaultValue: number;
+  resolution: 8 | 16;
+  coarseChannel: number;
+  fineChannel: number | null;
+  invert: boolean;
 }
 
 export interface FixtureDefinitionSummary {
   id: string;
   manufacturer: string;
   model: string;
+  source: "generic" | "ofl" | "custom";
   modes: FixtureModeSummary[];
+}
+
+export interface CustomFixtureChannel {
+  name: string;
+  parameterId: string;
+  capability: "intensity" | "color" | "position" | "beam" | "shutter" | "gobo" | "custom";
+  coarseChannel: number;
+  fineChannel: number | null;
+  defaultValue: number;
+  invert: boolean;
+}
+
+export interface CustomFixtureInput {
+  manufacturer: string;
+  model: string;
+  modeId: string;
+  modeName: string;
+  footprint: number;
+  channels: CustomFixtureChannel[];
 }
 
 export interface SceneSummary {
@@ -226,6 +259,7 @@ export type ProjectCommand =
   | { type: "updateLayouts"; data: { layouts: LayoutUpdate[] } }
   | { type: "patchFixture"; data: { fixtureId: string; universe: number; address: number } }
   | { type: "addFixture"; data: { name: string; definitionId: string; modeId: string; x: number; y: number } }
+  | { type: "putCustomFixtureDefinition"; data: CustomFixtureInput & { definitionId: string } }
   | { type: "duplicateFixtures"; data: { fixtureIds: string[] } }
   | { type: "deleteFixtures"; data: { fixtureIds: string[] } }
   | { type: "addUniverse" }

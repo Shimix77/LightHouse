@@ -24,6 +24,9 @@ use lighthouse_effects::{
     BeatSource, EffectBlend, EffectDefinition, EffectDirection, EffectOrder, EffectTemplate,
 };
 use lighthouse_fixture_library::FixtureLibrary;
+use lighthouse_fixture_model::{
+    DmxBinding, FixtureDefinition, FixtureMode, ParameterCapability, ParameterDefinition,
+};
 use lighthouse_ipc::{
     ClientMessage, EngineTelemetry, IPC_CONTRACT_VERSION, ServerMessage, read_message,
     write_message,
@@ -45,6 +48,7 @@ pub struct DesktopBackend {
     app_data_dir: PathBuf,
     project_path: PathBuf,
     bundle: ProjectBundle,
+    fixture_library: FixtureLibrary,
     session: EngineSession,
     next_sequence: u64,
 }
@@ -59,11 +63,13 @@ impl DesktopBackend {
             ProjectStore::save_atomic(&project_path, &demo_project()?)?;
         }
         let bundle = ProjectStore::load(&project_path)?.bundle;
+        let fixture_library = FixtureLibrary::with_embedded_pack()?;
         let session = EngineSession::connect_or_spawn(&app_data_dir, &project_path)?;
         Ok(Self {
             app_data_dir,
             project_path,
             bundle,
+            fixture_library,
             session,
             next_sequence: 1,
         })
@@ -72,7 +78,7 @@ impl DesktopBackend {
     pub fn bootstrap(&mut self) -> Result<UiBootstrap, BackendError> {
         let (snapshot, telemetry) = self.request_snapshot_with_restart()?;
         Ok(UiBootstrap {
-            project: project_view(&self.bundle, &snapshot),
+            project: project_view(&self.bundle, &snapshot, &self.fixture_library),
             engine: engine_view(snapshot, telemetry),
             project_path: self.project_path.to_string_lossy().into_owned(),
         })
@@ -143,6 +149,20 @@ impl DesktopBackend {
             ));
         }
         let mut next = self.bundle.clone();
+        if let UiProjectCommand::AddFixture { definition_id, .. } = &command
+            && !next
+                .fixture_definitions
+                .iter()
+                .any(|definition| definition.id == *definition_id)
+        {
+            let definition = self
+                .fixture_library
+                .find_latest(definition_id)
+                .ok_or_else(|| {
+                    BackendError::InvalidCommand("fixture definition was not found".into())
+                })?;
+            next.fixture_definitions.push(definition.clone());
+        }
         let restart_required = apply_project_command(&mut next, command, Some(&snapshot))?;
         next.validate()?;
         ProjectStore::save_atomic(&self.project_path, &next)?;
@@ -265,6 +285,15 @@ pub enum UiProjectCommand {
         x: f64,
         y: f64,
     },
+    PutCustomFixtureDefinition {
+        definition_id: String,
+        manufacturer: String,
+        model: String,
+        mode_id: String,
+        mode_name: String,
+        footprint: u16,
+        channels: Vec<UiCustomFixtureChannel>,
+    },
     DuplicateFixtures {
         fixture_ids: Vec<String>,
     },
@@ -381,6 +410,18 @@ pub struct UiStageObjectUpdate {
     hidden: bool,
     layer: String,
     opacity: f64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiCustomFixtureChannel {
+    name: String,
+    parameter_id: String,
+    capability: String,
+    coarse_channel: u16,
+    fine_channel: Option<u16>,
+    default_value: f64,
+    invert: bool,
 }
 
 impl UiEngineCommand {
@@ -594,6 +635,7 @@ struct UiFixtureView {
     pan: f64,
     tilt: f64,
     zoom: f64,
+    parameters: BTreeMap<String, f64>,
     locked: bool,
     hidden: bool,
     layer: String,
@@ -605,6 +647,7 @@ struct UiFixtureDefinitionView {
     id: String,
     manufacturer: String,
     model: String,
+    source: String,
     modes: Vec<UiFixtureModeView>,
 }
 
@@ -614,6 +657,20 @@ struct UiFixtureModeView {
     id: String,
     name: String,
     footprint: u16,
+    parameters: Vec<UiFixtureParameterView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiFixtureParameterView {
+    id: String,
+    name: String,
+    capability: String,
+    default_value: f64,
+    resolution: u8,
+    coarse_channel: u16,
+    fine_channel: Option<u16>,
+    invert: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -709,7 +766,11 @@ struct UiCueRuntime {
     paused: bool,
 }
 
-fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectView {
+fn project_view(
+    bundle: &ProjectBundle,
+    snapshot: &ShowSnapshot,
+    fixture_library: &FixtureLibrary,
+) -> UiProjectView {
     let patch: BTreeMap<_, _> = bundle
         .project
         .patch
@@ -736,7 +797,7 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
             UiFixtureView {
                 id: fixture.id.0.to_string(),
                 name: fixture.name.clone(),
-                kind: fixture_kind(fixture),
+                kind: fixture_kind(bundle, fixture),
                 definition_id: fixture.definition_id.clone(),
                 mode_id: fixture.mode_id.clone(),
                 footprint: patch_record.map_or_else(
@@ -755,6 +816,12 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
                 pan: parameter(values, "position.pan", 0.5),
                 tilt: parameter(values, "position.tilt", 0.5),
                 zoom: parameter(values, "beam.zoom", 0.5),
+                parameters: values.map_or_else(BTreeMap::new, |values| {
+                    values
+                        .iter()
+                        .map(|(id, value)| (id.as_str().to_owned(), value.get()))
+                        .collect()
+                }),
                 locked: layout_record.is_some_and(|record| record.locked),
                 hidden: layout_record.is_some_and(|record| record.hidden),
                 layer: layout_record
@@ -866,13 +933,27 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
             position: control.position,
         })
         .collect();
-    let fixture_definitions = bundle
-        .fixture_definitions
+    let mut catalog: BTreeMap<String, &FixtureDefinition> = fixture_library
         .iter()
+        .map(|definition| (definition.id.clone(), definition))
+        .collect();
+    for definition in &bundle.fixture_definitions {
+        catalog.insert(definition.id.clone(), definition);
+    }
+    let fixture_definitions = catalog
+        .into_values()
         .map(|definition| UiFixtureDefinitionView {
             id: definition.id.clone(),
             manufacturer: definition.manufacturer.clone(),
             model: definition.model.clone(),
+            source: if definition.id.starts_with("ofl.") {
+                "ofl"
+            } else if definition.id.starts_with("custom.") {
+                "custom"
+            } else {
+                "generic"
+            }
+            .into(),
             modes: definition
                 .modes
                 .iter()
@@ -880,6 +961,36 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
                     id: mode.id.clone(),
                     name: mode.name.clone(),
                     footprint: mode.footprint,
+                    parameters: mode
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            let (resolution, coarse_channel, fine_channel) = match parameter.binding
+                            {
+                                DmxBinding::EightBit { offset } => {
+                                    (8, offset.saturating_add(1), None)
+                                }
+                                DmxBinding::SixteenBit {
+                                    coarse_offset,
+                                    fine_offset,
+                                } => (
+                                    16,
+                                    coarse_offset.saturating_add(1),
+                                    Some(fine_offset.saturating_add(1)),
+                                ),
+                            };
+                            UiFixtureParameterView {
+                                id: parameter.id.as_str().into(),
+                                name: parameter.name.clone(),
+                                capability: parameter_capability_name(&parameter.capability).into(),
+                                default_value: parameter.default_value.get(),
+                                resolution,
+                                coarse_channel,
+                                fine_channel,
+                                invert: parameter.invert,
+                            }
+                        })
+                        .collect(),
                 })
                 .collect(),
         })
@@ -896,6 +1007,18 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
         fixture_definitions,
         background: background_view(bundle),
         universe_count: bundle.project.universes.len(),
+    }
+}
+
+fn parameter_capability_name(capability: &ParameterCapability) -> &str {
+    match capability {
+        ParameterCapability::Intensity => "intensity",
+        ParameterCapability::Color => "color",
+        ParameterCapability::Position => "position",
+        ParameterCapability::Beam => "beam",
+        ParameterCapability::Shutter => "shutter",
+        ParameterCapability::Gobo => "gobo",
+        ParameterCapability::Custom(_) => "custom",
     }
 }
 
@@ -978,12 +1101,32 @@ fn engine_view(snapshot: ShowSnapshot, telemetry: EngineTelemetry) -> UiEngineVi
     }
 }
 
-fn fixture_kind(fixture: &FixtureRecord) -> String {
+fn fixture_kind(bundle: &ProjectBundle, fixture: &FixtureRecord) -> String {
+    let mode = bundle
+        .fixture_definitions
+        .iter()
+        .find(|definition| {
+            definition.id == fixture.definition_id
+                && definition.revision == fixture.definition_revision
+        })
+        .and_then(|definition| {
+            definition
+                .modes
+                .iter()
+                .find(|mode| mode.id == fixture.mode_id)
+        });
+    let has_capability = |expected: ParameterCapability| {
+        mode.is_some_and(|mode| {
+            mode.parameters
+                .iter()
+                .any(|parameter| parameter.capability == expected)
+        })
+    };
     if fixture.name.to_ascii_lowercase().contains("strobe") {
         "strobe"
-    } else if fixture.definition_id.contains("moving-head") {
+    } else if has_capability(ParameterCapability::Position) {
         "moving-head"
-    } else if fixture.definition_id.contains("par") {
+    } else if has_capability(ParameterCapability::Color) {
         "par"
     } else {
         "dimmer"
@@ -1395,6 +1538,53 @@ fn apply_project_command(
                 bundle.project.layout_objects.len() as i32,
             ));
             Ok(true)
+        }
+        UiProjectCommand::PutCustomFixtureDefinition {
+            definition_id,
+            manufacturer,
+            model,
+            mode_id,
+            mode_name,
+            footprint,
+            channels,
+        } => {
+            if !definition_id.starts_with("custom.")
+                || definition_id.len() > 120
+                || bundle
+                    .fixture_definitions
+                    .iter()
+                    .any(|definition| definition.id == definition_id)
+            {
+                return Err(BackendError::InvalidCommand(
+                    "custom fixture ID is invalid or already exists".into(),
+                ));
+            }
+            if model.trim().is_empty() || mode_name.trim().is_empty() || channels.is_empty() {
+                return Err(BackendError::InvalidCommand(
+                    "custom fixture needs a model, mode and at least one channel".into(),
+                ));
+            }
+            let parameters = channels
+                .into_iter()
+                .map(custom_parameter)
+                .collect::<Result<Vec<_>, _>>()?;
+            let definition = FixtureDefinition {
+                id: definition_id,
+                revision: "custom-1".into(),
+                manufacturer: non_empty_name(manufacturer, "Custom"),
+                model: model.trim().into(),
+                modes: vec![FixtureMode {
+                    id: non_empty_name(mode_id, "custom-mode"),
+                    name: mode_name.trim().into(),
+                    footprint,
+                    parameters,
+                }],
+            };
+            definition
+                .validate()
+                .map_err(|error| BackendError::InvalidCommand(error.to_string()))?;
+            bundle.fixture_definitions.push(definition);
+            Ok(false)
         }
         UiProjectCommand::DuplicateFixtures { fixture_ids } => {
             let ids = parse_fixture_ids(&fixture_ids)?;
@@ -2084,6 +2274,57 @@ fn non_empty_name(value: String, fallback: &str) -> String {
     }
 }
 
+fn custom_parameter(channel: UiCustomFixtureChannel) -> Result<ParameterDefinition, BackendError> {
+    let parameter_id = channel.parameter_id.trim();
+    if parameter_id.is_empty() || channel.name.trim().is_empty() {
+        return Err(BackendError::InvalidCommand(
+            "custom channels need a name and logical parameter ID".into(),
+        ));
+    }
+    let coarse_offset = channel
+        .coarse_channel
+        .checked_sub(1)
+        .ok_or_else(|| BackendError::InvalidCommand("DMX channel numbers start at one".into()))?;
+    let fine_offset = channel
+        .fine_channel
+        .map(|channel| {
+            channel.checked_sub(1).ok_or_else(|| {
+                BackendError::InvalidCommand("DMX channel numbers start at one".into())
+            })
+        })
+        .transpose()?;
+    let capability = match channel.capability.trim().to_ascii_lowercase().as_str() {
+        "intensity" => ParameterCapability::Intensity,
+        "color" => ParameterCapability::Color,
+        "position" => ParameterCapability::Position,
+        "beam" => ParameterCapability::Beam,
+        "shutter" => ParameterCapability::Shutter,
+        "gobo" => ParameterCapability::Gobo,
+        value => ParameterCapability::Custom(if value.is_empty() {
+            "Custom".into()
+        } else {
+            channel.capability.trim().into()
+        }),
+    };
+    Ok(ParameterDefinition {
+        id: ParameterId::new(parameter_id),
+        name: channel.name.trim().into(),
+        capability,
+        default_value: NormalizedValue::new(channel.default_value)
+            .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
+        binding: fine_offset.map_or(
+            DmxBinding::EightBit {
+                offset: coarse_offset,
+            },
+            |fine_offset| DmxBinding::SixteenBit {
+                coarse_offset,
+                fine_offset,
+            },
+        ),
+        invert: channel.invert,
+    })
+}
+
 fn fixture_layout(
     fixture_id: FixtureId,
     name: String,
@@ -2601,6 +2842,75 @@ mod tests {
     }
 
     #[test]
+    fn custom_fixture_channels_support_logical_parameters_and_sixteen_bit_pairs() {
+        let mut bundle = demo_project().unwrap();
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutCustomFixtureDefinition {
+                definition_id: "custom.house-head".into(),
+                manufacturer: "House".into(),
+                model: "Test Head".into(),
+                mode_id: "fine".into(),
+                mode_name: "Fine".into(),
+                footprint: 4,
+                channels: vec![
+                    UiCustomFixtureChannel {
+                        name: "Dimmer".into(),
+                        parameter_id: "intensity".into(),
+                        capability: "intensity".into(),
+                        coarse_channel: 1,
+                        fine_channel: None,
+                        default_value: 0.0,
+                        invert: false,
+                    },
+                    UiCustomFixtureChannel {
+                        name: "Pan".into(),
+                        parameter_id: "position.pan".into(),
+                        capability: "position".into(),
+                        coarse_channel: 2,
+                        fine_channel: Some(3),
+                        default_value: 0.5,
+                        invert: true,
+                    },
+                    UiCustomFixtureChannel {
+                        name: "Shutter".into(),
+                        parameter_id: "shutter".into(),
+                        capability: "shutter".into(),
+                        coarse_channel: 4,
+                        fine_channel: None,
+                        default_value: 1.0,
+                        invert: false,
+                    },
+                ],
+            },
+            None,
+        )
+        .unwrap();
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::AddFixture {
+                name: "House Head".into(),
+                definition_id: "custom.house-head".into(),
+                mode_id: "fine".into(),
+                x: 0.0,
+                y: 0.0,
+            },
+            None,
+        )
+        .unwrap();
+        let definition = bundle.fixture_definitions.last().unwrap();
+        assert!(matches!(
+            definition.modes[0].parameters[1].binding,
+            DmxBinding::SixteenBit {
+                coarse_offset: 1,
+                fine_offset: 2
+            }
+        ));
+        assert!(definition.modes[0].parameters[1].invert);
+        assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
     fn project_editor_rejects_patch_conflicts_before_save() {
         let mut bundle = demo_project().unwrap();
         apply_project_command(
@@ -2926,6 +3236,23 @@ mod tests {
             })
             .unwrap();
         assert_eq!(repatched.project.fixtures[5].address, 42);
+        let imported = backend
+            .project_command(UiProjectCommand::AddFixture {
+                name: "OFL PAR".into(),
+                definition_id: "ofl.chauvet-dj.slimpar-pro-h-usb".into(),
+                mode_id: "6ch".into(),
+                x: 0.0,
+                y: 0.0,
+            })
+            .unwrap();
+        assert_eq!(imported.project.fixtures.last().unwrap().footprint, 6);
+        assert!(
+            backend
+                .bundle
+                .fixture_definitions
+                .iter()
+                .any(|definition| definition.id == "ofl.chauvet-dj.slimpar-pro-h-usb")
+        );
         assert!(backend.refresh().unwrap().connected);
 
         backend.session.shutdown().unwrap();
