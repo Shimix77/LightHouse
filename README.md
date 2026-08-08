@@ -2,7 +2,7 @@
 
 LightHouse is a macOS-first professional desktop application for designing and running DMX lighting shows from a visual 2D stage layout.
 
-The project is under active MVP development. It combines a headless Rust show engine with a Tauri 2 desktop shell and a React/PixiJS professional dark interface. The engine remains fully separated from the UI so DMX output can continue through a temporary UI freeze or restart.
+The approved internal macOS MVP is feature-complete. It combines a headless Rust show engine with a Tauri 2 desktop shell and a React/PixiJS professional dark interface. The engine remains fully separated from the UI so DMX output can continue through a temporary UI freeze or restart. Public notarization and the later Windows release remain deliberately outside this milestone.
 
 ## Documentation
 

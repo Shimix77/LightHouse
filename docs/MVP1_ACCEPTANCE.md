@@ -30,6 +30,25 @@ Status: **feature-complete macOS internal MVP**
 - `codesign --verify --deep --strict` for the `.app`
 - `hdiutil verify`, read-only mount inspection and SHA-256 for the DMG
 
+## Final completion audit — 2026-08-08
+
+The cumulative `codex/mvp1-complete` branch was re-audited against the original requirements and the approved decisions, using the current worktree and packaged artifacts rather than prior progress reports.
+
+| Gate | Final evidence |
+|---|---|
+| Rust correctness | `cargo fmt --all -- --check`, Clippy with warnings denied, and all 69 workspace tests passed |
+| UI correctness | TypeScript project check and production Vite build passed; 738 modules transformed |
+| Stage interaction | Browser acceptance passed for fixture selection, copy, paste, undo, EDIT/LIVE structural locks, Blackout, Freeze, rotation, object lock and snap |
+| Fixture library | Embedded pack parsed and semantically validated: 613 OFL profiles, 131 manufacturers and 1,951 modes, plus three generic profiles |
+| Packaged process isolation | The arm64 `.app` launched separate desktop and Show Engine processes and authenticated over the versioned local IPC contract |
+| UI-freeze safety | While the desktop process was held in `SIGSTOP` for 1.2 seconds, the sidecar advanced output by 54 frames with zero send errors and zero missed deadlines |
+| Clean lifecycle | Native Quit stopped both processes and left a zero-byte recovery journal after checkpointing |
+| Distribution | Both executables are arm64 Mach-O, deep strict code-sign verification passed, microphone entitlement and usage description are present, and `hdiutil verify` reports a valid DMG |
+
+Final internal installer: `LightHouse_0.1.0_aarch64.dmg` (5.5 MB)
+
+SHA-256: `d05e136fd763f1da2ec1e56f3cc03eba0310dcca0c44bd31d3c6c1a76e272264`
+
 ## Deliberately outside MVP 1
 
 - Windows build/installer, requested only after the macOS application is complete
