@@ -2,7 +2,9 @@
 members = [
     "apps/show-engine",
     "apps/virtual-dmx-node",
+    "crates/commands",
     "crates/domain",
+    "crates/effects",
     "crates/fixture-model",
     "crates/output-api",
     "crates/output-artnet",

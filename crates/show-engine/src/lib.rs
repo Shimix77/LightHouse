@@ -1,11 +1,16 @@
 //! Timing primitives and a UI-independent DMX output loop.
 
+mod show_core;
+
+pub use show_core::{CueRuntimeSnapshot, ShowCore, ShowSnapshot};
+
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use lighthouse_domain::NormalizedValue;
 use lighthouse_output_api::{FrameSet, OutputAdapter};
 
 pub const DEFAULT_DMX_REFRESH_HZ: u32 = 44;
@@ -88,6 +93,7 @@ struct SharedState {
     latest_frames: Mutex<Option<Arc<FrameSet>>>,
     stop: AtomicBool,
     blackout: AtomicBool,
+    grand_master_bits: AtomicU64,
     frames_sent: AtomicU64,
     send_errors: AtomicU64,
     missed_deadlines: AtomicU64,
@@ -99,6 +105,7 @@ impl Default for SharedState {
             latest_frames: Mutex::new(None),
             stop: AtomicBool::new(false),
             blackout: AtomicBool::new(false),
+            grand_master_bits: AtomicU64::new(1.0_f64.to_bits()),
             frames_sent: AtomicU64::new(0),
             send_errors: AtomicU64::new(0),
             missed_deadlines: AtomicU64::new(0),
@@ -155,6 +162,15 @@ impl DmxOutputLoop {
         }
     }
 
+    pub fn set_grand_master(&self, value: NormalizedValue) {
+        self.shared
+            .grand_master_bits
+            .store(value.get().to_bits(), Ordering::Release);
+        if let Some(worker) = &self.worker {
+            worker.thread().unpark();
+        }
+    }
+
     #[must_use]
     pub fn metrics(&self) -> OutputMetrics {
         OutputMetrics {
@@ -204,8 +220,13 @@ fn run_output_loop<A: OutputAdapter>(mut adapter: A, refresh_hz: u32, shared: Ar
         }
 
         if let Some(frames) = active_frames.as_ref() {
+            let grand_master = NormalizedValue::clamped(f64::from_bits(
+                shared.grand_master_bits.load(Ordering::Acquire),
+            ));
             let result = if shared.blackout.load(Ordering::Acquire) {
                 adapter.send(&frames.blackout_copy())
+            } else if grand_master != NormalizedValue::FULL {
+                adapter.send(&frames.intensity_scaled_copy(grand_master))
             } else {
                 adapter.send(frames)
             };
@@ -290,6 +311,34 @@ mod tests {
                 .unwrap()
                 .slot(1),
             Some(0)
+        );
+    }
+
+    #[test]
+    fn grand_master_is_applied_in_the_output_safety_lane() {
+        use lighthouse_domain::UniverseId;
+
+        let (adapter, handle) = VirtualDmxOutput::new();
+        let output = DmxOutputLoop::start(adapter, 100).unwrap();
+        let mut frames = FrameSet::default();
+        frames
+            .frame_mut(UniverseId::new(1))
+            .set_slot(1, 200, true)
+            .unwrap();
+        output.publish(frames);
+        output.set_grand_master(NormalizedValue::new(0.25).unwrap());
+        thread::sleep(Duration::from_millis(30));
+
+        let snapshot = handle.snapshot();
+        output.shutdown();
+        assert_eq!(
+            snapshot
+                .last_frames
+                .unwrap()
+                .frame(UniverseId::new(1))
+                .unwrap()
+                .slot(1),
+            Some(50)
         );
     }
 }

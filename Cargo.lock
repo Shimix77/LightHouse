@@ -3,8 +3,23 @@
 version = 4
 
 [[package]]
+name = "lighthouse-commands"
+version = "0.1.0"
+dependencies = [
+ "lighthouse-domain",
+ "lighthouse-effects",
+]
+
+[[package]]
 name = "lighthouse-domain"
 version = "0.1.0"
+
+[[package]]
+name = "lighthouse-effects"
+version = "0.1.0"
+dependencies = [
+ "lighthouse-domain",
+]
 
 [[package]]
 name = "lighthouse-fixture-model"
@@ -49,7 +64,9 @@ dependencies = [
 name = "lighthouse-show-engine"
 version = "0.1.0"
 dependencies = [
+ "lighthouse-commands",
  "lighthouse-domain",
+ "lighthouse-effects",
  "lighthouse-output-api",
 ]
 

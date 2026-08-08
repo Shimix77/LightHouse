@@ -3,6 +3,20 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+macro_rules! typed_id {
+    ($name:ident) => {
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct $name(pub u128);
+
+        impl $name {
+            #[must_use]
+            pub const fn new(value: u128) -> Self {
+                Self(value)
+            }
+        }
+    };
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct FixtureId(pub u128);
 
@@ -12,6 +26,13 @@ impl FixtureId {
         Self(value)
     }
 }
+
+typed_id!(ProjectId);
+typed_id!(SceneId);
+typed_id!(CueListId);
+typed_id!(EffectId);
+typed_id!(GroupId);
+typed_id!(LayoutObjectId);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UniverseId(pub u32);

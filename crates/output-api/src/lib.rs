@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use lighthouse_domain::UniverseId;
+use lighthouse_domain::{NormalizedValue, UniverseId};
 
 pub const DMX_SLOT_COUNT: usize = 512;
 
@@ -64,6 +64,14 @@ impl DmxFrame {
             }
         }
     }
+
+    pub fn apply_intensity_scale(&mut self, scale: NormalizedValue) {
+        for (slot, is_intensity) in self.slots.iter_mut().zip(self.intensity_mask) {
+            if is_intensity {
+                *slot = (f64::from(*slot) * scale.get()).round() as u8;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -92,6 +100,15 @@ impl FrameSet {
         let mut copy = self.clone();
         for frame in copy.frames.values_mut() {
             frame.apply_blackout();
+        }
+        copy
+    }
+
+    #[must_use]
+    pub fn intensity_scaled_copy(&self, scale: NormalizedValue) -> Self {
+        let mut copy = self.clone();
+        for frame in copy.frames.values_mut() {
+            frame.apply_intensity_scale(scale);
         }
         copy
     }
@@ -203,5 +220,17 @@ mod tests {
             blacked_out.frame(UniverseId::new(1)).unwrap().slot(2),
             Some(120)
         );
+    }
+
+    #[test]
+    fn grand_master_scales_only_intensity_channels() {
+        let mut frames = FrameSet::default();
+        let frame = frames.frame_mut(UniverseId::new(1));
+        frame.set_slot(1, 200, true).unwrap();
+        frame.set_slot(2, 200, false).unwrap();
+
+        let scaled = frames.intensity_scaled_copy(NormalizedValue::new(0.5).unwrap());
+        assert_eq!(scaled.frame(UniverseId::new(1)).unwrap().slot(1), Some(100));
+        assert_eq!(scaled.frame(UniverseId::new(1)).unwrap().slot(2), Some(200));
     }
 }
