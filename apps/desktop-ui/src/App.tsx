@@ -20,6 +20,8 @@ export function App() {
   const undo = useShowStore((state) => state.undo);
   const redo = useShowStore((state) => state.redo);
   const duplicate = useShowStore((state) => state.duplicateSelection);
+  const copy = useShowStore((state) => state.copySelection);
+  const paste = useShowStore((state) => state.pasteSelection);
   const remove = useShowStore((state) => state.deleteSelection);
   const toggleBlackout = useShowStore((state) => state.toggleBlackout);
   const hydrateEngine = useShowStore((state) => state.hydrateEngine);
@@ -38,6 +40,12 @@ export function App() {
       } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
         event.preventDefault();
         duplicate();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        copy();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        paste();
       } else if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
         remove();
@@ -47,7 +55,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [duplicate, redo, remove, toggleBlackout, undo]);
+  }, [copy, duplicate, paste, redo, remove, toggleBlackout, undo]);
 
   useEffect(() => {
     if (!hasNativeEngine()) return;
@@ -96,7 +104,7 @@ export function App() {
         <span>{telemetry.missedDeadlines} missed deadlines</span>
         <span>{telemetry.sendErrors} output errors</span>
         <span className="status-spacer" />
-        <span>⌘Z Undo</span><span>⇧B Blackout</span>
+        <span>⌘Z Undo</span><span>⌘C / ⌘V Copy · Paste</span><span>⇧B Blackout</span>
       </footer>
     </main>
   );

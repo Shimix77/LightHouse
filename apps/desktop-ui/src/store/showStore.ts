@@ -72,6 +72,8 @@ interface ShowUiState {
   snapEnabled: boolean;
   undoStack: FixtureSnapshot[];
   redoStack: FixtureSnapshot[];
+  clipboardFixtureIds: string[];
+  clipboardStageObjectIds: string[];
   setMode: (mode: OperationMode) => void;
   selectFixtures: (ids: string[], additive?: boolean) => void;
   selectStageObjects: (ids: string[], additive?: boolean) => void;
@@ -100,6 +102,8 @@ interface ShowUiState {
   undo: () => void;
   redo: () => void;
   duplicateSelection: () => void;
+  copySelection: () => void;
+  pasteSelection: () => void;
   deleteSelection: () => void;
   patchFixture: (fixtureId: string, universe: number, address: number) => void;
   addFixture: (definitionId: string, modeId: string, name: string) => void;
@@ -268,6 +272,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     snapEnabled: true,
     undoStack: [],
     redoStack: [],
+    clipboardFixtureIds: [],
+    clipboardStageObjectIds: [],
     setMode: (mode) => {
       set({ mode });
       dispatch({ type: "setOperationMode", data: { mode } });
@@ -497,22 +503,36 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       persistLayouts(next.fixtures.map((fixtureItem) => fixtureItem.id));
       persistStageObjects(next.stageObjects.map((stageObject) => stageObject.id));
     },
-    duplicateSelection: () => {
+    copySelection: () => {
       const state = get();
       if (state.selectedStageObjectIds.length > 0) {
+        set({
+          clipboardFixtureIds: [],
+          clipboardStageObjectIds: [...state.selectedStageObjectIds],
+        });
+      } else if (state.selectedFixtureIds.length > 0) {
+        set({
+          clipboardFixtureIds: [...state.selectedFixtureIds],
+          clipboardStageObjectIds: [],
+        });
+      }
+    },
+    pasteSelection: () => {
+      const state = get();
+      const stageObjectIds = state.clipboardStageObjectIds.filter((id) =>
+        state.stageObjects.some((stageObject) => stageObject.id === id));
+      if (stageObjectIds.length > 0) {
         if (hasNativeEngine()) {
-          void mutateProject({
-            type: "duplicateStageObjects",
-            data: { objectIds: state.selectedStageObjectIds },
-          });
+          void mutateProject({ type: "duplicateStageObjects", data: { objectIds: stageObjectIds } });
           return;
         }
         state.captureFixtureHistory();
+        const pastedAt = Date.now();
         const duplicated = state.stageObjects
-          .filter((stageObject) => state.selectedStageObjectIds.includes(stageObject.id))
+          .filter((stageObject) => stageObjectIds.includes(stageObject.id))
           .map((stageObject) => ({
             ...stageObject,
-            id: `${stageObject.id}-copy-${Date.now()}`,
+            id: `${stageObject.id}-copy-${pastedAt}`,
             name: `${stageObject.name} Copy`,
             x: stageObject.x + 0.6,
             y: stageObject.y + 0.6,
@@ -523,19 +543,23 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         }));
         return;
       }
-      if (hasNativeEngine() && state.selectedFixtureIds.length > 0) {
-        void mutateProject({
-          type: "duplicateFixtures",
-          data: { fixtureIds: state.selectedFixtureIds },
-        });
+      const fixtureIds = state.clipboardFixtureIds.filter((id) =>
+        state.fixtures.some((fixtureItem) => fixtureItem.id === id));
+      if (fixtureIds.length === 0) {
+        set({ engineError: "Copy one or more fixtures or stage objects before pasting." });
+        return;
+      }
+      if (hasNativeEngine()) {
+        void mutateProject({ type: "duplicateFixtures", data: { fixtureIds } });
         return;
       }
       state.captureFixtureHistory();
+      const pastedAt = Date.now();
       const duplicated = state.fixtures
-        .filter((fixtureItem) => state.selectedFixtureIds.includes(fixtureItem.id))
+        .filter((fixtureItem) => fixtureIds.includes(fixtureItem.id))
         .map((fixtureItem) => ({
           ...fixtureItem,
-          id: `${fixtureItem.id}-copy-${Date.now()}`,
+          id: `${fixtureItem.id}-copy-${pastedAt}`,
           name: `${fixtureItem.name} Copy`,
           x: fixtureItem.x + 0.6,
           y: fixtureItem.y + 0.6,
@@ -545,6 +569,10 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         fixtures: [...current.fixtures, ...duplicated],
         selectedFixtureIds: duplicated.map((fixtureItem) => fixtureItem.id),
       }));
+    },
+    duplicateSelection: () => {
+      get().copySelection();
+      get().pasteSelection();
     },
     deleteSelection: () => {
       const state = get();

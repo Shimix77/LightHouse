@@ -13,6 +13,7 @@ The project is under active MVP development. It combines a headless Rust show en
 - [Engine sidecar and IPC baseline](docs/behavior-specs/ENGINE_SIDECAR.md)
 - [Fail-safe and crash-recovery behavior](docs/behavior-specs/FAILSAFE_RECOVERY.md)
 - [macOS bundle and sidecar packaging](docs/behavior-specs/MACOS_BUNDLE.md)
+- [MVP 1 acceptance record](docs/MVP1_ACCEPTANCE.md)
 
 ## Workspace
 
