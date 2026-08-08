@@ -7,11 +7,12 @@ import {
 } from "pixi.js";
 
 import { useShowStore } from "../store/showStore";
-import type { LayoutFixture } from "../types/show";
+import type { LayoutFixture, StageObject } from "../types/show";
 
 const PIXELS_PER_METER = 48;
 
 interface DragState {
+  kind: "fixture" | "object";
   ids: string[];
   startX: number;
   startY: number;
@@ -28,9 +29,11 @@ export function StageEditor() {
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
   const fixtureLayerRef = useRef<Container | null>(null);
+  const stageObjectLayerRef = useRef<Container | null>(null);
   const beamLayerRef = useRef<Container | null>(null);
   const overlayRef = useRef<Graphics | null>(null);
-  const containersRef = useRef(new Map<string, Container>());
+  const fixtureContainersRef = useRef(new Map<string, Container>());
+  const stageObjectContainersRef = useRef(new Map<string, Container>());
   const dragRef = useRef<DragState | null>(null);
   const rectangleRef = useRef<RectangleState | null>(null);
   const panRef = useRef<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
@@ -39,13 +42,21 @@ export function StageEditor() {
   const [zoom, setZoom] = useState(1);
 
   const fixtures = useShowStore((state) => state.fixtures);
+  const stageObjects = useShowStore((state) => state.stageObjects);
   const selectedIds = useShowStore((state) => state.selectedFixtureIds);
+  const selectedStageObjectIds = useShowStore((state) => state.selectedStageObjectIds);
   const background = useShowStore((state) => state.background);
   const selectFixtures = useShowStore((state) => state.selectFixtures);
+  const selectStageObjects = useShowStore((state) => state.selectStageObjects);
   const captureHistory = useShowStore((state) => state.captureFixtureHistory);
   const moveFixtures = useShowStore((state) => state.moveFixtures);
+  const moveStageObjects = useShowStore((state) => state.moveStageObjects);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedStageObjectSet = useMemo(
+    () => new Set(selectedStageObjectIds),
+    [selectedStageObjectIds],
+  );
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -73,10 +84,11 @@ export function StageEditor() {
         app.canvas.className = "stage-canvas";
         const world = new Container();
         const grid = createGrid();
+        const stageObjectLayer = new Container();
         const beamLayer = new Container();
         const fixtureLayer = new Container();
         const overlay = new Graphics();
-        world.addChild(grid, beamLayer, fixtureLayer, overlay);
+        world.addChild(grid, stageObjectLayer, beamLayer, fixtureLayer, overlay);
         world.scale.set(PIXELS_PER_METER);
         world.position.set(app.screen.width / 2, app.screen.height / 2);
         app.stage.addChild(world);
@@ -86,6 +98,7 @@ export function StageEditor() {
         appRef.current = app;
         worldRef.current = world;
         fixtureLayerRef.current = fixtureLayer;
+        stageObjectLayerRef.current = stageObjectLayer;
         beamLayerRef.current = beamLayer;
         overlayRef.current = overlay;
         initialized = true;
@@ -116,9 +129,11 @@ export function StageEditor() {
       appRef.current = null;
       worldRef.current = null;
       fixtureLayerRef.current = null;
+      stageObjectLayerRef.current = null;
       beamLayerRef.current = null;
       overlayRef.current = null;
-      containersRef.current.clear();
+      fixtureContainersRef.current.clear();
+      stageObjectContainersRef.current.clear();
       removeGestureListeners?.();
       if (initialized) app.destroy(true, { children: true });
     };
@@ -155,7 +170,9 @@ export function StageEditor() {
           const deltaX = point.x - dragRef.current.startX;
           const deltaY = point.y - dragRef.current.startY;
           for (const id of dragRef.current.ids) {
-            const container = containersRef.current.get(id);
+            const container = dragRef.current.kind === "fixture"
+              ? fixtureContainersRef.current.get(id)
+              : stageObjectContainersRef.current.get(id);
             const origin = dragRef.current.origins.get(id);
             if (container && origin) {
               container.position.set(origin.x + deltaX, origin.y + deltaY);
@@ -185,7 +202,11 @@ export function StageEditor() {
         if (dragRef.current) {
           const deltaX = point.x - dragRef.current.startX;
           const deltaY = point.y - dragRef.current.startY;
-          moveFixtures(dragRef.current.ids, deltaX, deltaY);
+          if (dragRef.current.kind === "fixture") {
+            moveFixtures(dragRef.current.ids, deltaX, deltaY);
+          } else {
+            moveStageObjects(dragRef.current.ids, deltaX, deltaY);
+          }
           dragRef.current = null;
           return;
         }
@@ -205,7 +226,21 @@ export function StageEditor() {
                 fixtureItem.y <= bottom,
               )
               .map((fixtureItem) => fixtureItem.id);
-            selectFixtures(ids, event.shiftKey);
+            if (ids.length > 0) {
+              selectFixtures(ids, event.shiftKey);
+            } else {
+              const objectIds = useShowStore
+                .getState()
+                .stageObjects.filter((stageObject) =>
+                  !stageObject.hidden
+                  && stageObject.x >= left
+                  && stageObject.x <= right
+                  && stageObject.y >= top
+                  && stageObject.y <= bottom,
+                )
+                .map((stageObject) => stageObject.id);
+              selectStageObjects(objectIds, event.shiftKey);
+            }
           }
           rectangleRef.current = null;
           overlayRef.current?.clear();
@@ -239,13 +274,62 @@ export function StageEditor() {
         stageApp.canvas.removeEventListener("wheel", onWheel);
       };
     }
-  }, [captureHistory, moveFixtures, selectFixtures]);
+  }, [captureHistory, moveFixtures, moveStageObjects, selectFixtures, selectStageObjects]);
+
+  useEffect(() => {
+    if (!ready || !stageObjectLayerRef.current) return;
+    stageObjectLayerRef.current.removeChildren().forEach((child) => child.destroy({ children: true }));
+    stageObjectContainersRef.current.clear();
+    for (const stageObject of stageObjects) {
+      if (stageObject.hidden) continue;
+      const container = createStageObjectSymbol(
+        stageObject,
+        selectedStageObjectSet.has(stageObject.id),
+      );
+      container.position.set(stageObject.x, stageObject.y);
+      container.rotation = (stageObject.rotation * Math.PI) / 180;
+      container.alpha = stageObject.opacity;
+      container.eventMode = stageObject.locked ? "none" : "static";
+      container.cursor = stageObject.locked ? "not-allowed" : "move";
+      container.on("pointerdown", (event: FederatedPointerEvent) => {
+        event.stopPropagation();
+        const additive = event.shiftKey;
+        const currentSelection = useShowStore.getState().selectedStageObjectIds;
+        if (!currentSelection.includes(stageObject.id)) {
+          selectStageObjects([stageObject.id], additive);
+        }
+        const ids = additive
+          ? [...new Set([...currentSelection, stageObject.id])]
+          : currentSelection.includes(stageObject.id)
+            ? currentSelection
+            : [stageObject.id];
+        captureHistory();
+        const world = worldRef.current;
+        if (!world) return;
+        const point = world.toLocal(event.global);
+        dragRef.current = {
+          kind: "object",
+          ids,
+          startX: point.x,
+          startY: point.y,
+          origins: new Map(
+            useShowStore
+              .getState()
+              .stageObjects.filter((candidate) => ids.includes(candidate.id))
+              .map((candidate) => [candidate.id, { x: candidate.x, y: candidate.y }]),
+          ),
+        };
+      });
+      stageObjectLayerRef.current.addChild(container);
+      stageObjectContainersRef.current.set(stageObject.id, container);
+    }
+  }, [captureHistory, ready, selectStageObjects, selectedStageObjectSet, stageObjects]);
 
   useEffect(() => {
     if (!ready || !fixtureLayerRef.current || !beamLayerRef.current) return;
     fixtureLayerRef.current.removeChildren().forEach((child) => child.destroy({ children: true }));
     beamLayerRef.current.removeChildren().forEach((child) => child.destroy({ children: true }));
-    containersRef.current.clear();
+    fixtureContainersRef.current.clear();
 
     for (const fixtureItem of fixtures) {
       if (fixtureItem.hidden) continue;
@@ -275,6 +359,7 @@ export function StageEditor() {
         if (!world) return;
         const point = world.toLocal(event.global);
         dragRef.current = {
+          kind: "fixture",
           ids,
           startX: point.x,
           startY: point.y,
@@ -287,7 +372,7 @@ export function StageEditor() {
         };
       });
       fixtureLayerRef.current.addChild(container);
-      containersRef.current.set(fixtureItem.id, container);
+      fixtureContainersRef.current.set(fixtureItem.id, container);
     }
   }, [captureHistory, fixtures, ready, selectFixtures, selectedSet]);
 
@@ -303,7 +388,7 @@ export function StageEditor() {
         <span>WORLD</span>
         <strong>1 m grid</strong>
         <span>{Math.round(zoom * 100)}%</span>
-        <span>{fixtures.length} objects</span>
+        <span>{fixtures.length + stageObjects.length} objects</span>
       </div>
       <div ref={hostRef} className="stage-surface" style={backgroundStyle} />
       <div className="stage-hint">Space + drag to pan · Wheel to zoom · Shift for multi-select</div>
@@ -356,6 +441,46 @@ function createFixtureSymbol(fixtureItem: LayoutFixture, selected: boolean): Con
         .stroke({ color: 0x65d6ff, alpha: 0.9, width: 0.035 }),
     );
   }
+  return container;
+}
+
+function createStageObjectSymbol(stageObject: StageObject, selected: boolean): Container {
+  const container = new Container();
+  const body = new Graphics();
+  const left = -stageObject.width / 2;
+  const top = -stageObject.height / 2;
+  const border = selected ? 0x65d6ff : 0x667588;
+  if (stageObject.kind === "truss") {
+    body.roundRect(left, top, stageObject.width, stageObject.height, 0.05).fill({ color: 0x303b49 });
+    const step = Math.max(0.28, stageObject.height * 1.2);
+    for (let x = left; x < left + stageObject.width; x += step) {
+      body.moveTo(x, top).lineTo(Math.min(x + step, left + stageObject.width), top + stageObject.height)
+        .stroke({ color: 0x8c99a9, alpha: 0.72, width: 0.025 });
+    }
+  } else if (stageObject.kind === "speaker") {
+    body.roundRect(left, top, stageObject.width, stageObject.height, 0.08).fill({ color: 0x171d25 });
+    const radius = Math.min(stageObject.width, stageObject.height) * 0.25;
+    body.circle(0, 0, radius).fill({ color: 0x313d4c }).stroke({ color: 0x7e8a98, width: 0.025 });
+  } else if (stageObject.kind === "stage") {
+    body.roundRect(left, top, stageObject.width, stageObject.height, 0.08).fill({ color: 0x252d38, alpha: 0.92 });
+    body.moveTo(left, 0).lineTo(left + stageObject.width, 0).stroke({ color: 0x465466, width: 0.025 });
+  } else if (stageObject.kind === "person") {
+    const radius = Math.min(stageObject.width, stageObject.height) * 0.16;
+    body.circle(0, top + radius * 1.3, radius).fill({ color: 0xb3bfce });
+    body.moveTo(0, top + radius * 2.5).lineTo(0, top + stageObject.height * 0.72)
+      .stroke({ color: 0xb3bfce, width: Math.max(0.04, radius * 0.55) });
+    body.moveTo(-stageObject.width * 0.25, top + stageObject.height * 0.44)
+      .lineTo(stageObject.width * 0.25, top + stageObject.height * 0.44)
+      .stroke({ color: 0xb3bfce, width: 0.04 });
+  } else {
+    body.roundRect(left, top, stageObject.width, stageObject.height, 0.06).fill({ color: 0x384657, alpha: 0.72 });
+  }
+  body.rect(left, top, stageObject.width, stageObject.height).stroke({
+    color: border,
+    alpha: selected ? 1 : 0.78,
+    width: selected ? 0.06 : 0.025,
+  });
+  container.addChild(body);
   return container;
 }
 

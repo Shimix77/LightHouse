@@ -14,11 +14,14 @@ import type {
   EngineView,
   FixtureDefinitionSummary,
   FixtureSnapshot,
+  GroupSummary,
   LayoutFixture,
   OperationMode,
   ProjectCommand,
   SceneSummary,
   StageBackground,
+  StageObject,
+  StageObjectKind,
 } from "../types/show";
 
 interface ShowUiState {
@@ -26,6 +29,9 @@ interface ShowUiState {
   mode: OperationMode;
   fixtures: LayoutFixture[];
   selectedFixtureIds: string[];
+  stageObjects: StageObject[];
+  selectedStageObjectIds: string[];
+  groups: GroupSummary[];
   scenes: SceneSummary[];
   grandMaster: number;
   blackout: boolean;
@@ -44,16 +50,22 @@ interface ShowUiState {
   cueCursor: number | null;
   cuePaused: boolean;
   background: StageBackground | undefined;
+  snapEnabled: boolean;
   undoStack: FixtureSnapshot[];
   redoStack: FixtureSnapshot[];
   setMode: (mode: OperationMode) => void;
   selectFixtures: (ids: string[], additive?: boolean) => void;
+  selectStageObjects: (ids: string[], additive?: boolean) => void;
   captureFixtureHistory: () => void;
   moveFixtures: (ids: string[], deltaX: number, deltaY: number) => void;
   updateSelectedFixtures: (update: Partial<LayoutFixture>) => void;
+  moveStageObjects: (ids: string[], deltaX: number, deltaY: number) => void;
+  updateSelectedStageObjects: (update: Partial<StageObject>) => void;
   setGrandMaster: (value: number) => void;
   toggleBlackout: () => void;
   toggleBlind: () => void;
+  commitBlind: () => void;
+  clearProgrammer: () => void;
   toggleFreeze: () => void;
   setBpm: (value: number) => void;
   tapTempo: () => void;
@@ -63,6 +75,7 @@ interface ShowUiState {
   toggleCuePause: () => void;
   importBackground: (file: File) => Promise<void>;
   removeBackground: () => void;
+  toggleSnap: () => void;
   undo: () => void;
   redo: () => void;
   duplicateSelection: () => void;
@@ -70,6 +83,14 @@ interface ShowUiState {
   patchFixture: (fixtureId: string, universe: number, address: number) => void;
   addFixture: (definitionId: string, modeId: string, name: string) => void;
   addUniverse: () => void;
+  addStageObject: (kind: StageObjectKind, name: string) => void;
+  putGroup: (groupId: string | null, name: string, fixtureIds: string[]) => void;
+  deleteGroup: (groupId: string) => void;
+  captureScene: (name: string, fadeMs: number) => void;
+  updateScene: (sceneId: string, name: string, fadeMs: number) => void;
+  deleteScene: (sceneId: string) => void;
+  addCue: (sceneId: string) => void;
+  deleteCue: (cueListId: string, index: number) => void;
   hydrateEngine: (bootstrap: EngineBootstrap) => void;
   applyEngineView: (view: EngineView) => void;
   setEngineError: (message: string) => void;
@@ -102,10 +123,16 @@ export const useShowStore = create<ShowUiState>((set, get) => {
   const onEngineError = (message: string) => set({ engineConnected: false, engineError: message });
   const dispatch = (command: EngineCommand, key?: string) =>
     dispatchEngineCommand(command, onEngineView, onEngineError, key);
-  const mutateProject = async (command: ProjectCommand): Promise<boolean> => {
+  const mutateProject = async (
+    command: ProjectCommand,
+    preserveHistory = false,
+  ): Promise<boolean> => {
     if (!hasNativeEngine()) return false;
     try {
+      const undoStack = get().undoStack;
+      const redoStack = get().redoStack;
       get().hydrateEngine(await sendProjectCommand(command));
+      if (preserveHistory) set({ undoStack, redoStack });
       return true;
     } catch (error) {
       set({ engineError: error instanceof Error ? error.message : String(error) });
@@ -127,7 +154,27 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         layer: fixtureItem.layer,
       }));
     if (layouts.length > 0) {
-      void mutateProject({ type: "updateLayouts", data: { layouts } });
+      void mutateProject({ type: "updateLayouts", data: { layouts } }, true);
+    }
+  };
+  const persistStageObjects = (ids: string[]) => {
+    const objects = get().stageObjects
+      .filter((stageObject) => ids.includes(stageObject.id))
+      .map((stageObject) => ({
+        objectId: stageObject.id,
+        name: stageObject.name,
+        x: stageObject.x,
+        y: stageObject.y,
+        width: stageObject.width,
+        height: stageObject.height,
+        rotation: stageObject.rotation,
+        locked: stageObject.locked,
+        hidden: stageObject.hidden,
+        layer: stageObject.layer,
+        opacity: stageObject.opacity,
+      }));
+    if (objects.length > 0) {
+      void mutateProject({ type: "updateStageObjects", data: { objects } }, true);
     }
   };
 
@@ -136,6 +183,9 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     mode: "edit",
     fixtures: initialFixtures,
     selectedFixtureIds: ["fx-5"],
+    stageObjects: [],
+    selectedStageObjectIds: [],
+    groups: [],
     scenes: initialScenes,
     cueLists: [],
     effects: [],
@@ -154,6 +204,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     cueCursor: null,
     cuePaused: false,
     background: undefined,
+    snapEnabled: true,
     undoStack: [],
     redoStack: [],
     setMode: (mode) => {
@@ -165,17 +216,29 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         selectedFixtureIds: additive
           ? [...new Set([...state.selectedFixtureIds, ...ids])]
           : ids,
+        selectedStageObjectIds: [],
+      })),
+    selectStageObjects: (ids, additive = false) =>
+      set((state) => ({
+        selectedStageObjectIds: additive
+          ? [...new Set([...state.selectedStageObjectIds, ...ids])]
+          : ids,
+        selectedFixtureIds: [],
       })),
     captureFixtureHistory: () =>
       set((state) => ({
-        undoStack: [...state.undoStack.slice(-49), snapshot(state.fixtures)],
+        undoStack: [...state.undoStack.slice(-49), snapshot(state.fixtures, state.stageObjects)],
         redoStack: [],
       })),
     moveFixtures: (ids, deltaX, deltaY) => {
       set((state) => ({
         fixtures: state.fixtures.map((fixtureItem) =>
           ids.includes(fixtureItem.id) && !fixtureItem.locked
-            ? { ...fixtureItem, x: fixtureItem.x + deltaX, y: fixtureItem.y + deltaY }
+            ? {
+                ...fixtureItem,
+                x: state.snapEnabled ? Math.round(fixtureItem.x + deltaX) : fixtureItem.x + deltaX,
+                y: state.snapEnabled ? Math.round(fixtureItem.y + deltaY) : fixtureItem.y + deltaY,
+              }
             : fixtureItem,
         ),
       }));
@@ -197,6 +260,32 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         persistLayouts(selectedIds);
       }
     },
+    moveStageObjects: (ids, deltaX, deltaY) => {
+      set((state) => ({
+        stageObjects: state.stageObjects.map((stageObject) =>
+          ids.includes(stageObject.id) && !stageObject.locked
+            ? {
+                ...stageObject,
+                x: state.snapEnabled ? Math.round(stageObject.x + deltaX) : stageObject.x + deltaX,
+                y: state.snapEnabled ? Math.round(stageObject.y + deltaY) : stageObject.y + deltaY,
+              }
+            : stageObject,
+        ),
+      }));
+      persistStageObjects(ids);
+    },
+    updateSelectedStageObjects: (update) => {
+      const selectedIds = get().selectedStageObjectIds;
+      set((state) => ({
+        stageObjects: state.stageObjects.map((stageObject) =>
+          selectedIds.includes(stageObject.id)
+            && (!stageObject.locked || update.locked === false)
+            ? { ...stageObject, ...update }
+            : stageObject,
+        ),
+      }));
+      persistStageObjects(selectedIds);
+    },
     setGrandMaster: (value) => {
       const grandMaster = clamp(value);
       set({ grandMaster });
@@ -212,6 +301,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       set({ blind: enabled });
       dispatch({ type: "setBlind", data: { enabled } });
     },
+    commitBlind: () => dispatch({ type: "commitBlind" }),
+    clearProgrammer: () => dispatch({ type: "clearProgrammer", data: { fixtureId: null } }),
     toggleFreeze: () => {
       const enabled = !get().freeze;
       set({ freeze: enabled });
@@ -289,16 +380,20 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         set({ background: undefined });
       }
     },
+    toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
     undo: () => {
       const state = get();
       const previous = state.undoStack.at(-1);
       if (!previous) return;
       set({
         fixtures: previous.fixtures,
+        stageObjects: previous.stageObjects,
         undoStack: state.undoStack.slice(0, -1),
-        redoStack: [...state.redoStack, snapshot(state.fixtures)],
+        redoStack: [...state.redoStack, snapshot(state.fixtures, state.stageObjects)],
       });
       syncFixtureParameters(previous.fixtures, dispatch);
+      persistLayouts(previous.fixtures.map((fixtureItem) => fixtureItem.id));
+      persistStageObjects(previous.stageObjects.map((stageObject) => stageObject.id));
     },
     redo: () => {
       const state = get();
@@ -306,13 +401,40 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       if (!next) return;
       set({
         fixtures: next.fixtures,
-        undoStack: [...state.undoStack, snapshot(state.fixtures)],
+        stageObjects: next.stageObjects,
+        undoStack: [...state.undoStack, snapshot(state.fixtures, state.stageObjects)],
         redoStack: state.redoStack.slice(0, -1),
       });
       syncFixtureParameters(next.fixtures, dispatch);
+      persistLayouts(next.fixtures.map((fixtureItem) => fixtureItem.id));
+      persistStageObjects(next.stageObjects.map((stageObject) => stageObject.id));
     },
     duplicateSelection: () => {
       const state = get();
+      if (state.selectedStageObjectIds.length > 0) {
+        if (hasNativeEngine()) {
+          void mutateProject({
+            type: "duplicateStageObjects",
+            data: { objectIds: state.selectedStageObjectIds },
+          });
+          return;
+        }
+        state.captureFixtureHistory();
+        const duplicated = state.stageObjects
+          .filter((stageObject) => state.selectedStageObjectIds.includes(stageObject.id))
+          .map((stageObject) => ({
+            ...stageObject,
+            id: `${stageObject.id}-copy-${Date.now()}`,
+            name: `${stageObject.name} Copy`,
+            x: stageObject.x + 0.6,
+            y: stageObject.y + 0.6,
+          }));
+        set((current) => ({
+          stageObjects: [...current.stageObjects, ...duplicated],
+          selectedStageObjectIds: duplicated.map((stageObject) => stageObject.id),
+        }));
+        return;
+      }
       if (hasNativeEngine() && state.selectedFixtureIds.length > 0) {
         void mutateProject({
           type: "duplicateFixtures",
@@ -338,6 +460,23 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     },
     deleteSelection: () => {
       const state = get();
+      if (state.selectedStageObjectIds.length > 0) {
+        if (hasNativeEngine()) {
+          void mutateProject({
+            type: "deleteStageObjects",
+            data: { objectIds: state.selectedStageObjectIds },
+          });
+          return;
+        }
+        state.captureFixtureHistory();
+        set((current) => ({
+          stageObjects: current.stageObjects.filter(
+            (stageObject) => !current.selectedStageObjectIds.includes(stageObject.id),
+          ),
+          selectedStageObjectIds: [],
+        }));
+        return;
+      }
       if (hasNativeEngine() && state.selectedFixtureIds.length > 0) {
         void mutateProject({
           type: "deleteFixtures",
@@ -361,6 +500,34 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         data: { definitionId, modeId, name, x: 0, y: 0 },
       }),
     addUniverse: () => { void mutateProject({ type: "addUniverse" }); },
+    addStageObject: (kind, name) => {
+      void mutateProject({ type: "addStageObject", data: { kind, name, x: 0, y: 0 } });
+    },
+    putGroup: (groupId, name, fixtureIds) => {
+      void mutateProject({ type: "putGroup", data: { groupId, name, fixtureIds } });
+    },
+    deleteGroup: (groupId) => {
+      void mutateProject({ type: "deleteGroup", data: { groupId } });
+    },
+    captureScene: (name, fadeMs) => {
+      void mutateProject({
+        type: "captureScene",
+        data: { name, fadeMs, fixtureIds: get().selectedFixtureIds },
+      });
+    },
+    updateScene: (sceneId, name, fadeMs) => {
+      void mutateProject({ type: "updateScene", data: { sceneId, name, fadeMs } });
+    },
+    deleteScene: (sceneId) => {
+      void mutateProject({ type: "deleteScene", data: { sceneId } });
+    },
+    addCue: (sceneId) => {
+      const cueListId = get().cueLists[0]?.id ?? null;
+      void mutateProject({ type: "addCue", data: { cueListId, sceneId } });
+    },
+    deleteCue: (cueListId, index) => {
+      void mutateProject({ type: "deleteCue", data: { cueListId, index } });
+    },
     hydrateEngine: (bootstrap) => {
       const availableIds = new Set(bootstrap.project.fixtures.map((fixtureItem) => fixtureItem.id));
       const retainedSelection = get().selectedFixtureIds.filter((id) => availableIds.has(id));
@@ -369,6 +536,11 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         projectName: bootstrap.project.name,
         projectPath: bootstrap.projectPath,
         fixtures: bootstrap.project.fixtures,
+        stageObjects: bootstrap.project.stageObjects,
+        selectedStageObjectIds: get().selectedStageObjectIds.filter((id) =>
+          bootstrap.project.stageObjects.some((stageObject) => stageObject.id === id),
+        ),
+        groups: bootstrap.project.groups,
         selectedFixtureIds: retainedSelection.length > 0
           ? retainedSelection
           : fallbackId ? [fallbackId] : [],
@@ -534,8 +706,11 @@ function fixture(
   };
 }
 
-function snapshot(fixtures: LayoutFixture[]): FixtureSnapshot {
-  return { fixtures: fixtures.map((fixtureItem) => ({ ...fixtureItem })) };
+function snapshot(fixtures: LayoutFixture[], stageObjects: StageObject[]): FixtureSnapshot {
+  return {
+    fixtures: fixtures.map((fixtureItem) => ({ ...fixtureItem })),
+    stageObjects: stageObjects.map((stageObject) => ({ ...stageObject })),
+  };
 }
 
 function clamp(value: number): number {

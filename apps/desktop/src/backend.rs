@@ -17,8 +17,8 @@ use lighthouse_commands::{
     PriorityLane, SceneData,
 };
 use lighthouse_domain::{
-    CueListId, EffectId, FixtureId, LayoutObjectId, NormalizedValue, ParameterId, ProjectId,
-    SceneId, UniverseId,
+    CueListId, EffectId, FixtureId, GroupId, LayoutObjectId, NormalizedValue, ParameterId,
+    ProjectId, SceneId, UniverseId,
 };
 use lighthouse_effects::{
     EffectBlend, EffectDefinition, EffectDirection, EffectOrder, EffectTemplate,
@@ -29,8 +29,8 @@ use lighthouse_ipc::{
     write_message,
 };
 use lighthouse_persistence::{
-    FixtureRecord, LayoutObjectKind, LayoutObjectRecord, LayoutTransform, LiveControlRecord,
-    OutputRouteRecord, PatchRecord, ProjectBundle, ProjectStore, UniverseRecord,
+    FixtureRecord, GroupRecord, LayoutObjectKind, LayoutObjectRecord, LayoutTransform,
+    LiveControlRecord, OutputRouteRecord, PatchRecord, ProjectBundle, ProjectStore, UniverseRecord,
 };
 use lighthouse_show_engine::ShowSnapshot;
 use serde::{Deserialize, Serialize};
@@ -143,7 +143,7 @@ impl DesktopBackend {
             ));
         }
         let mut next = self.bundle.clone();
-        let restart_required = apply_project_command(&mut next, command)?;
+        let restart_required = apply_project_command(&mut next, command, Some(&snapshot))?;
         next.validate()?;
         ProjectStore::save_atomic(&self.project_path, &next)?;
         self.bundle = next;
@@ -256,6 +256,50 @@ pub enum UiProjectCommand {
         bytes: Vec<u8>,
     },
     RemoveBackground,
+    AddStageObject {
+        kind: String,
+        name: String,
+        x: f64,
+        y: f64,
+    },
+    UpdateStageObjects {
+        objects: Vec<UiStageObjectUpdate>,
+    },
+    DuplicateStageObjects {
+        object_ids: Vec<String>,
+    },
+    DeleteStageObjects {
+        object_ids: Vec<String>,
+    },
+    PutGroup {
+        group_id: Option<String>,
+        name: String,
+        fixture_ids: Vec<String>,
+    },
+    DeleteGroup {
+        group_id: String,
+    },
+    CaptureScene {
+        name: String,
+        fixture_ids: Vec<String>,
+        fade_ms: u64,
+    },
+    UpdateScene {
+        scene_id: String,
+        name: String,
+        fade_ms: u64,
+    },
+    DeleteScene {
+        scene_id: String,
+    },
+    AddCue {
+        cue_list_id: Option<String>,
+        scene_id: String,
+    },
+    DeleteCue {
+        cue_list_id: String,
+        index: usize,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -270,6 +314,22 @@ pub struct UiLayoutUpdate {
     locked: bool,
     hidden: bool,
     layer: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiStageObjectUpdate {
+    object_id: String,
+    name: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    rotation: f64,
+    locked: bool,
+    hidden: bool,
+    layer: String,
+    opacity: f64,
 }
 
 impl UiEngineCommand {
@@ -370,12 +430,39 @@ pub struct UiBootstrap {
 struct UiProjectView {
     name: String,
     fixtures: Vec<UiFixtureView>,
+    stage_objects: Vec<UiStageObjectView>,
+    groups: Vec<UiGroupView>,
     scenes: Vec<UiSceneView>,
     cue_lists: Vec<UiCueListView>,
     effects: Vec<UiEffectView>,
     fixture_definitions: Vec<UiFixtureDefinitionView>,
     background: Option<UiBackgroundView>,
     universe_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiStageObjectView {
+    id: String,
+    name: String,
+    kind: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    rotation: f64,
+    locked: bool,
+    hidden: bool,
+    layer: String,
+    opacity: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiGroupView {
+    id: String,
+    name: String,
+    fixture_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -554,6 +641,42 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
             }
         })
         .collect();
+    let stage_objects = bundle
+        .project
+        .layout_objects
+        .iter()
+        .filter_map(|record| {
+            let kind = stage_object_kind(&record.kind)?;
+            Some(UiStageObjectView {
+                id: record.id.0.to_string(),
+                name: record.name.clone(),
+                kind: kind.into(),
+                x: record.transform.x_meters,
+                y: record.transform.y_meters,
+                width: record.transform.width_meters,
+                height: record.transform.height_meters,
+                rotation: record.transform.rotation_degrees,
+                locked: record.locked,
+                hidden: record.hidden,
+                layer: record.layer.clone(),
+                opacity: record.opacity.get(),
+            })
+        })
+        .collect();
+    let groups = bundle
+        .project
+        .groups
+        .iter()
+        .map(|group| UiGroupView {
+            id: group.id.0.to_string(),
+            name: group.name.clone(),
+            fixture_ids: group
+                .fixture_ids
+                .iter()
+                .map(|fixture_id| fixture_id.0.to_string())
+                .collect(),
+        })
+        .collect();
     let palette = ["#ff9f43", "#4da3ff", "#a970ff", "#ff4d6d", "#48d597"];
     let scenes = bundle
         .project
@@ -621,12 +744,25 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
     UiProjectView {
         name: bundle.project.name.clone(),
         fixtures,
+        stage_objects,
+        groups,
         scenes,
         cue_lists,
         effects,
         fixture_definitions,
         background: background_view(bundle),
         universe_count: bundle.project.universes.len(),
+    }
+}
+
+fn stage_object_kind(kind: &LayoutObjectKind) -> Option<&'static str> {
+    match kind {
+        LayoutObjectKind::Truss => Some("truss"),
+        LayoutObjectKind::Speaker => Some("speaker"),
+        LayoutObjectKind::Stage => Some("stage"),
+        LayoutObjectKind::Person => Some("person"),
+        LayoutObjectKind::Shape => Some("shape"),
+        LayoutObjectKind::Fixture { .. } | LayoutObjectKind::BackgroundImage { .. } => None,
     }
 }
 
@@ -960,6 +1096,7 @@ fn locate_engine_binary() -> Result<PathBuf, BackendError> {
 fn apply_project_command(
     bundle: &mut ProjectBundle,
     command: UiProjectCommand,
+    snapshot: Option<&ShowSnapshot>,
 ) -> Result<bool, BackendError> {
     match command {
         UiProjectCommand::UpdateLayouts { layouts } => {
@@ -1186,6 +1323,263 @@ fn apply_project_command(
             add_universe(bundle);
             Ok(false)
         }
+        UiProjectCommand::AddStageObject { kind, name, x, y } => {
+            if !x.is_finite() || !y.is_finite() {
+                return Err(BackendError::InvalidCommand(
+                    "stage object position must be finite".into(),
+                ));
+            }
+            let (kind, fallback_name, width, height) = new_stage_object(&kind)?;
+            bundle.project.layout_objects.push(LayoutObjectRecord {
+                id: LayoutObjectId::new(Uuid::new_v4().as_u128()),
+                name: non_empty_name(name, fallback_name),
+                kind,
+                transform: LayoutTransform {
+                    x_meters: x,
+                    y_meters: y,
+                    width_meters: width,
+                    height_meters: height,
+                    rotation_degrees: 0.0,
+                    z_index: bundle.project.layout_objects.len() as i32,
+                },
+                layer: "Stage Objects".into(),
+                locked: false,
+                hidden: false,
+                opacity: NormalizedValue::FULL,
+            });
+            Ok(false)
+        }
+        UiProjectCommand::UpdateStageObjects { objects } => {
+            for update in objects {
+                validate_stage_object_update(&update)?;
+                let object_id = LayoutObjectId::new(parse_id(&update.object_id)?);
+                let record = bundle
+                    .project
+                    .layout_objects
+                    .iter_mut()
+                    .find(|record| {
+                        record.id == object_id && stage_object_kind(&record.kind).is_some()
+                    })
+                    .ok_or_else(|| {
+                        BackendError::InvalidCommand("stage object was not found".into())
+                    })?;
+                record.name = non_empty_name(update.name, "Stage Object");
+                record.transform.x_meters = update.x;
+                record.transform.y_meters = update.y;
+                record.transform.width_meters = update.width;
+                record.transform.height_meters = update.height;
+                record.transform.rotation_degrees = update.rotation.rem_euclid(360.0);
+                record.locked = update.locked;
+                record.hidden = update.hidden;
+                record.layer = non_empty_name(update.layer, "Stage Objects");
+                record.opacity = NormalizedValue::new(update.opacity).map_err(|_| {
+                    BackendError::InvalidCommand(
+                        "stage object opacity must be between 0 and 1".into(),
+                    )
+                })?;
+            }
+            Ok(false)
+        }
+        UiProjectCommand::DuplicateStageObjects { object_ids } => {
+            for value in object_ids {
+                let object_id = LayoutObjectId::new(parse_id(&value)?);
+                let source = bundle
+                    .project
+                    .layout_objects
+                    .iter()
+                    .find(|record| {
+                        record.id == object_id && stage_object_kind(&record.kind).is_some()
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        BackendError::InvalidCommand(
+                            "stage object to duplicate was not found".into(),
+                        )
+                    })?;
+                let mut duplicate = source;
+                duplicate.id = LayoutObjectId::new(Uuid::new_v4().as_u128());
+                duplicate.name = format!("{} Copy", duplicate.name);
+                duplicate.transform.x_meters += 0.6;
+                duplicate.transform.y_meters += 0.6;
+                duplicate.transform.z_index = bundle.project.layout_objects.len() as i32;
+                bundle.project.layout_objects.push(duplicate);
+            }
+            Ok(false)
+        }
+        UiProjectCommand::DeleteStageObjects { object_ids } => {
+            let ids = object_ids
+                .iter()
+                .map(|value| parse_id(value).map(LayoutObjectId::new))
+                .collect::<Result<Vec<_>, _>>()?;
+            bundle.project.layout_objects.retain(|record| {
+                !ids.contains(&record.id) || stage_object_kind(&record.kind).is_none()
+            });
+            Ok(false)
+        }
+        UiProjectCommand::PutGroup {
+            group_id,
+            name,
+            fixture_ids,
+        } => {
+            let fixture_ids = validated_fixture_ids(bundle, &fixture_ids, false)?;
+            let name = non_empty_name(name, "Fixture Group");
+            if let Some(group_id) = group_id {
+                let group_id = GroupId::new(parse_id(&group_id)?);
+                let group = bundle
+                    .project
+                    .groups
+                    .iter_mut()
+                    .find(|group| group.id == group_id)
+                    .ok_or_else(|| {
+                        BackendError::InvalidCommand("fixture group was not found".into())
+                    })?;
+                group.name = name;
+                group.fixture_ids = fixture_ids;
+            } else {
+                bundle.project.groups.push(GroupRecord {
+                    id: GroupId::new(Uuid::new_v4().as_u128()),
+                    name,
+                    fixture_ids,
+                });
+            }
+            Ok(false)
+        }
+        UiProjectCommand::DeleteGroup { group_id } => {
+            let group_id = GroupId::new(parse_id(&group_id)?);
+            let before = bundle.project.groups.len();
+            bundle.project.groups.retain(|group| group.id != group_id);
+            if bundle.project.groups.len() == before {
+                return Err(BackendError::InvalidCommand(
+                    "fixture group was not found".into(),
+                ));
+            }
+            Ok(false)
+        }
+        UiProjectCommand::CaptureScene {
+            name,
+            fixture_ids,
+            fade_ms,
+        } => {
+            validate_fade(fade_ms)?;
+            let snapshot = snapshot.ok_or_else(|| {
+                BackendError::InvalidCommand("scene capture requires the running show state".into())
+            })?;
+            let fixture_ids = validated_fixture_ids(bundle, &fixture_ids, true)?;
+            let mut capture_values = snapshot.resolved_values.clone();
+            if snapshot.blind {
+                for (fixture_id, parameters) in &snapshot.blind_values {
+                    capture_values
+                        .entry(*fixture_id)
+                        .or_default()
+                        .extend(parameters.clone());
+                }
+            }
+            let values = fixture_ids
+                .into_iter()
+                .filter_map(|fixture_id| {
+                    capture_values
+                        .get(&fixture_id)
+                        .cloned()
+                        .map(|values| (fixture_id, values))
+                })
+                .collect();
+            let fallback = format!("Scene {}", bundle.project.scenes.len() + 1);
+            bundle.project.scenes.push(SceneData {
+                id: SceneId::new(Uuid::new_v4().as_u128()),
+                name: non_empty_name(name, &fallback),
+                values,
+                default_fade_ms: fade_ms,
+            });
+            Ok(true)
+        }
+        UiProjectCommand::UpdateScene {
+            scene_id,
+            name,
+            fade_ms,
+        } => {
+            validate_fade(fade_ms)?;
+            let scene_id = SceneId::new(parse_id(&scene_id)?);
+            let scene = bundle
+                .project
+                .scenes
+                .iter_mut()
+                .find(|scene| scene.id == scene_id)
+                .ok_or_else(|| BackendError::InvalidCommand("scene was not found".into()))?;
+            scene.name = non_empty_name(name, "Scene");
+            scene.default_fade_ms = fade_ms;
+            Ok(true)
+        }
+        UiProjectCommand::DeleteScene { scene_id } => {
+            let scene_id = SceneId::new(parse_id(&scene_id)?);
+            let before = bundle.project.scenes.len();
+            bundle.project.scenes.retain(|scene| scene.id != scene_id);
+            if bundle.project.scenes.len() == before {
+                return Err(BackendError::InvalidCommand("scene was not found".into()));
+            }
+            for cue_list in &mut bundle.project.cue_lists {
+                cue_list.entries.retain(|entry| entry.scene_id != scene_id);
+                renumber_cues(cue_list);
+            }
+            bundle
+                .project
+                .live_controls
+                .retain(|control| control.scene_id != Some(scene_id));
+            Ok(true)
+        }
+        UiProjectCommand::AddCue {
+            cue_list_id,
+            scene_id,
+        } => {
+            let scene_id = SceneId::new(parse_id(&scene_id)?);
+            let scene_name = bundle
+                .project
+                .scenes
+                .iter()
+                .find(|scene| scene.id == scene_id)
+                .map(|scene| scene.name.clone())
+                .ok_or_else(|| BackendError::InvalidCommand("cue scene was not found".into()))?;
+            let cue_list_id = if let Some(value) = cue_list_id {
+                CueListId::new(parse_id(&value)?)
+            } else if let Some(cue_list) = bundle.project.cue_lists.first() {
+                cue_list.id
+            } else {
+                let id = CueListId::new(Uuid::new_v4().as_u128());
+                bundle.project.cue_lists.push(CueListData {
+                    id,
+                    name: "Main Show".into(),
+                    entries: Vec::new(),
+                });
+                id
+            };
+            let cue_list = bundle
+                .project
+                .cue_lists
+                .iter_mut()
+                .find(|cue_list| cue_list.id == cue_list_id)
+                .ok_or_else(|| BackendError::InvalidCommand("cue list was not found".into()))?;
+            cue_list.entries.push(CueEntryData {
+                number: (cue_list.entries.len() + 1).to_string(),
+                name: scene_name,
+                scene_id,
+                fade_ms: None,
+            });
+            Ok(true)
+        }
+        UiProjectCommand::DeleteCue { cue_list_id, index } => {
+            let cue_list_id = CueListId::new(parse_id(&cue_list_id)?);
+            let cue_list = bundle
+                .project
+                .cue_lists
+                .iter_mut()
+                .find(|cue_list| cue_list.id == cue_list_id)
+                .ok_or_else(|| BackendError::InvalidCommand("cue list was not found".into()))?;
+            if index >= cue_list.entries.len() {
+                return Err(BackendError::InvalidCommand("cue was not found".into()));
+            }
+            cue_list.entries.remove(index);
+            renumber_cues(cue_list);
+            Ok(true)
+        }
         UiProjectCommand::PutBackground { name, mime, bytes } => {
             if bytes.len() > 12 * 1024 * 1024 {
                 return Err(BackendError::InvalidCommand(
@@ -1251,6 +1645,97 @@ fn remove_background(bundle: &mut ProjectBundle) {
         .retain(|record| !matches!(&record.kind, LayoutObjectKind::BackgroundImage { .. }));
     for path in paths {
         bundle.assets.remove(&path);
+    }
+}
+
+fn new_stage_object(
+    value: &str,
+) -> Result<(LayoutObjectKind, &'static str, f64, f64), BackendError> {
+    match value {
+        "truss" => Ok((LayoutObjectKind::Truss, "Truss", 4.0, 0.35)),
+        "speaker" => Ok((LayoutObjectKind::Speaker, "Speaker", 0.7, 0.7)),
+        "stage" => Ok((LayoutObjectKind::Stage, "Stage", 4.0, 3.0)),
+        "person" => Ok((LayoutObjectKind::Person, "Person", 0.55, 0.55)),
+        "shape" => Ok((LayoutObjectKind::Shape, "Shape", 1.0, 1.0)),
+        _ => Err(BackendError::InvalidCommand(format!(
+            "unsupported stage object kind {value}"
+        ))),
+    }
+}
+
+fn validate_stage_object_update(update: &UiStageObjectUpdate) -> Result<(), BackendError> {
+    if ![
+        update.x,
+        update.y,
+        update.width,
+        update.height,
+        update.rotation,
+        update.opacity,
+    ]
+    .into_iter()
+    .all(f64::is_finite)
+        || update.width <= 0.0
+        || update.height <= 0.0
+    {
+        return Err(BackendError::InvalidCommand(
+            "stage object transform must contain finite values and positive size".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validated_fixture_ids(
+    bundle: &ProjectBundle,
+    values: &[String],
+    default_to_all: bool,
+) -> Result<Vec<FixtureId>, BackendError> {
+    let ids = if values.is_empty() && default_to_all {
+        bundle
+            .project
+            .fixtures
+            .iter()
+            .map(|fixture| fixture.id)
+            .collect()
+    } else {
+        parse_fixture_ids(values)?
+    };
+    if ids.is_empty() {
+        return Err(BackendError::InvalidCommand(
+            "select at least one fixture".into(),
+        ));
+    }
+    if ids.iter().any(|fixture_id| {
+        !bundle
+            .project
+            .fixtures
+            .iter()
+            .any(|fixture| fixture.id == *fixture_id)
+    }) {
+        return Err(BackendError::InvalidCommand(
+            "fixture selection contains an unknown fixture".into(),
+        ));
+    }
+    let mut unique = Vec::new();
+    for fixture_id in ids {
+        if !unique.contains(&fixture_id) {
+            unique.push(fixture_id);
+        }
+    }
+    Ok(unique)
+}
+
+fn validate_fade(fade_ms: u64) -> Result<(), BackendError> {
+    if fade_ms > 10 * 60 * 1_000 {
+        return Err(BackendError::InvalidCommand(
+            "scene fade must be ten minutes or shorter".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn renumber_cues(cue_list: &mut CueListData) {
+    for (index, entry) in cue_list.entries.iter_mut().enumerate() {
+        entry.number = (index + 1).to_string();
     }
 }
 
@@ -1773,6 +2258,7 @@ mod tests {
                 x: 2.0,
                 y: 3.0,
             },
+            None,
         )
         .unwrap();
         assert!(restart);
@@ -1794,6 +2280,7 @@ mod tests {
                 universe: 1,
                 address: 1,
             },
+            None,
         )
         .unwrap();
         assert!(bundle.validate().is_err());
@@ -1817,6 +2304,7 @@ mod tests {
                     layer: "Front Truss".into(),
                 }],
             },
+            None,
         )
         .unwrap();
         assert!(!restart);
@@ -1825,6 +2313,95 @@ mod tests {
         assert_eq!(layout.transform.rotation_degrees, 90.0);
         assert_eq!(layout.layer, "Front Truss");
         assert!(layout.locked);
+    }
+
+    #[test]
+    fn stage_objects_and_fixture_groups_are_persistent_project_data() {
+        let mut bundle = demo_project().unwrap();
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::AddStageObject {
+                kind: "truss".into(),
+                name: "Front Truss".into(),
+                x: 0.0,
+                y: -3.0,
+            },
+            None,
+        )
+        .unwrap();
+        assert!(!restart);
+        let object = bundle.project.layout_objects.last().unwrap();
+        assert!(matches!(object.kind, LayoutObjectKind::Truss));
+        assert_eq!(object.transform.width_meters, 4.0);
+
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutGroup {
+                group_id: None,
+                name: "Front Lights".into(),
+                fixture_ids: vec!["101".into(), "102".into(), "101".into()],
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(bundle.project.groups.len(), 1);
+        assert_eq!(bundle.project.groups[0].fixture_ids.len(), 2);
+        assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn scene_capture_stores_selected_logical_values_and_can_join_the_cue_list() {
+        let mut bundle = demo_project().unwrap();
+        let fixture_id = FixtureId::new(101);
+        let mut resolved_values = FixtureParameterValues::new();
+        resolved_values.entry(fixture_id).or_default().insert(
+            ParameterId::new("intensity"),
+            NormalizedValue::clamped(0.33),
+        );
+        let snapshot = ShowSnapshot {
+            project_id: bundle.project.project_id,
+            revision: 1,
+            operation_mode: OperationMode::Edit,
+            resolved_values,
+            programmer_values: FixtureParameterValues::new(),
+            blind_values: FixtureParameterValues::new(),
+            active_scene_ids: Vec::new(),
+            active_effect_ids: Vec::new(),
+            cue_runtime: BTreeMap::new(),
+            grand_master: NormalizedValue::FULL,
+            blackout: false,
+            blind: false,
+            freeze: false,
+            bpm: 120.0,
+        };
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::CaptureScene {
+                name: "Front Third".into(),
+                fixture_ids: vec!["101".into()],
+                fade_ms: 750,
+            },
+            Some(&snapshot),
+        )
+        .unwrap();
+        assert!(restart);
+        let captured = bundle.project.scenes.last().unwrap();
+        assert_eq!(captured.values.len(), 1);
+        assert_eq!(captured.default_fade_ms, 750);
+        let scene_id = captured.id;
+
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::AddCue {
+                cue_list_id: None,
+                scene_id: scene_id.0.to_string(),
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(bundle.project.cue_lists[0].entries.len(), 5);
+        assert_eq!(bundle.project.cue_lists[0].entries[4].scene_id, scene_id);
+        assert!(bundle.validate().is_ok());
     }
 
     #[test]
@@ -1838,6 +2415,7 @@ mod tests {
                 mime: "image/png".into(),
                 bytes: png.clone(),
             },
+            None,
         )
         .unwrap();
         assert!(!restart);
@@ -1866,6 +2444,7 @@ mod tests {
                 mime: "image/png".into(),
                 bytes: b"not a png".to_vec(),
             },
+            None,
         );
         assert!(matches!(invalid, Err(BackendError::InvalidCommand(_))));
 
@@ -1876,6 +2455,7 @@ mod tests {
                 mime: "image/jpeg".into(),
                 bytes: vec![0xff; 12 * 1024 * 1024 + 1],
             },
+            None,
         );
         assert!(matches!(oversized, Err(BackendError::InvalidCommand(_))));
 
@@ -1886,9 +2466,10 @@ mod tests {
                 mime: "image/jpeg".into(),
                 bytes: vec![0xff, 0xd8, 0xff, 0xd9],
             },
+            None,
         )
         .unwrap();
-        apply_project_command(&mut bundle, UiProjectCommand::RemoveBackground).unwrap();
+        apply_project_command(&mut bundle, UiProjectCommand::RemoveBackground, None).unwrap();
         assert!(background_view(&bundle).is_none());
         assert!(bundle.assets.is_empty());
     }
