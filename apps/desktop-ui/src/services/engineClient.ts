@@ -30,6 +30,22 @@ export async function sendProjectCommand(command: ProjectCommand): Promise<Engin
   return invoke<EngineBootstrap>("project_command", { command });
 }
 
+export async function createProject(): Promise<EngineBootstrap | null> {
+  return invoke<EngineBootstrap | null>("new_project");
+}
+
+export async function openProject(): Promise<EngineBootstrap | null> {
+  return invoke<EngineBootstrap | null>("open_project");
+}
+
+export async function openRecentProject(path: string): Promise<EngineBootstrap> {
+  return invoke<EngineBootstrap>("open_recent_project", { path });
+}
+
+export async function saveProjectAs(): Promise<EngineBootstrap | null> {
+  return invoke<EngineBootstrap | null>("save_project_as");
+}
+
 export async function openLiveDisplay(): Promise<void> {
   if (hasNativeEngine()) {
     await invoke("open_live_window");

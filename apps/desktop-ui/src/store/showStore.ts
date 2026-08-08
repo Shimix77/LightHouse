@@ -1,8 +1,12 @@
 import { create } from "zustand";
 
 import {
+  createProject,
   dispatchEngineCommand,
   hasNativeEngine,
+  openProject,
+  openRecentProject,
+  saveProjectAs,
   sendProjectCommand,
 } from "../services/engineClient";
 import type {
@@ -21,6 +25,7 @@ import type {
   LiveControlSummary,
   OperationMode,
   ProjectCommand,
+  RecentProject,
   SceneSummary,
   StageBackground,
   StageObject,
@@ -50,6 +55,9 @@ interface ShowUiState {
   fixtureDefinitions: FixtureDefinitionSummary[];
   universeCount: number;
   projectPath: string;
+  recentProjects: RecentProject[];
+  recoveryNotice: string | undefined;
+  projectBusy: boolean;
   engineConnected: boolean;
   engineError: string | undefined;
   engineRevision: number;
@@ -92,6 +100,11 @@ interface ShowUiState {
   patchFixture: (fixtureId: string, universe: number, address: number) => void;
   addFixture: (definitionId: string, modeId: string, name: string) => void;
   putCustomFixture: (fixture: CustomFixtureInput) => Promise<string | null>;
+  newProject: () => Promise<void>;
+  openProject: () => Promise<void>;
+  openRecentProject: (path: string) => Promise<void>;
+  saveProjectAs: () => Promise<void>;
+  dismissRecoveryNotice: () => void;
   addUniverse: () => void;
   addStageObject: (kind: StageObjectKind, name: string) => void;
   putGroup: (groupId: string | null, name: string, fixtureIds: string[]) => void;
@@ -158,6 +171,20 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       return false;
     }
   };
+  const runProjectOperation = async (
+    operation: () => Promise<EngineBootstrap | null>,
+  ): Promise<void> => {
+    if (!hasNativeEngine()) return;
+    set({ projectBusy: true, engineError: undefined });
+    try {
+      const bootstrap = await operation();
+      if (bootstrap) get().hydrateEngine(bootstrap);
+    } catch (error) {
+      set({ engineError: error instanceof Error ? error.message : String(error) });
+    } finally {
+      set({ projectBusy: false });
+    }
+  };
   const persistLayouts = (ids: string[]) => {
     const layouts = get().fixtures
       .filter((fixtureItem) => ids.includes(fixtureItem.id))
@@ -213,6 +240,9 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     fixtureDefinitions: initialFixtureDefinitions,
     universeCount: 1,
     projectPath: "",
+    recentProjects: [],
+    recoveryNotice: undefined,
+    projectBusy: false,
     grandMaster: 1,
     blackout: false,
     blind: false,
@@ -557,6 +587,11 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       });
       return saved ? definitionId : null;
     },
+    newProject: () => runProjectOperation(createProject),
+    openProject: () => runProjectOperation(openProject),
+    openRecentProject: (path) => runProjectOperation(() => openRecentProject(path)),
+    saveProjectAs: () => runProjectOperation(saveProjectAs),
+    dismissRecoveryNotice: () => set({ recoveryNotice: undefined }),
     addUniverse: () => { void mutateProject({ type: "addUniverse" }); },
     addStageObject: (kind, name) => {
       void mutateProject({ type: "addStageObject", data: { kind, name, x: 0, y: 0 } });
@@ -675,6 +710,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       set({
         projectName: bootstrap.project.name,
         projectPath: bootstrap.projectPath,
+        recentProjects: bootstrap.recentProjects,
+        recoveryNotice: bootstrap.recoveryNotice ?? undefined,
         fixtures: bootstrap.project.fixtures,
         stageObjects: bootstrap.project.stageObjects,
         selectedStageObjectIds: get().selectedStageObjectIds.filter((id) =>

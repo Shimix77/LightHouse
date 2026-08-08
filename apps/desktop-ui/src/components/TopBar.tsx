@@ -19,15 +19,65 @@ export function TopBar() {
   const engineConnected = useShowStore((state) => state.engineConnected);
   const universeCount = useShowStore((state) => state.universeCount);
   const telemetry = useShowStore((state) => state.engineTelemetry);
+  const projectPath = useShowStore((state) => state.projectPath);
+  const recentProjects = useShowStore((state) => state.recentProjects);
+  const recoveryNotice = useShowStore((state) => state.recoveryNotice);
+  const projectBusy = useShowStore((state) => state.projectBusy);
+  const newProject = useShowStore((state) => state.newProject);
+  const openProject = useShowStore((state) => state.openProject);
+  const openRecentProject = useShowStore((state) => state.openRecentProject);
+  const saveProjectAs = useShowStore((state) => state.saveProjectAs);
+  const dismissRecoveryNotice = useShowStore((state) => state.dismissRecoveryNotice);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const projectMenu = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (!projectMenu.current?.contains(event.target as Node)) setProjectMenuOpen(false);
+    };
+    const shortcuts = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.target instanceof HTMLInputElement) return;
+      if (event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        void newProject();
+      } else if (event.key.toLowerCase() === "o") {
+        event.preventDefault();
+        void openProject();
+      } else if (event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveProjectAs();
+      }
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", shortcuts);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", shortcuts);
+    };
+  }, [newProject, openProject, saveProjectAs]);
 
   return (
     <header className="top-bar">
-      <div className="brand-block">
+      <div className="brand-block project-menu-host" ref={projectMenu}>
         <div className="brand-mark" aria-hidden="true"><span /></div>
         <div>
           <div className="brand-name">LIGHTHOUSE</div>
-          <div className="project-name">{projectName}</div>
+          <button className="project-name" type="button" aria-expanded={projectMenuOpen} onClick={() => setProjectMenuOpen((open) => !open)}>{projectName} <span>⌄</span></button>
         </div>
+        {projectMenuOpen && (
+          <div className="project-menu" role="menu">
+            <div className="project-menu-current"><strong>{projectName}</strong><small title={projectPath}>{projectPath || "Browser preview"}</small></div>
+            {recoveryNotice && <div className="recovery-notice"><span>RECOVERED</span><p>{recoveryNotice}</p><button onClick={dismissRecoveryNotice}>×</button></div>}
+            <button role="menuitem" disabled={projectBusy} onClick={() => { setProjectMenuOpen(false); void newProject(); }}><span>＋</span><strong>New Project</strong><kbd>⌘N</kbd></button>
+            <button role="menuitem" disabled={projectBusy} onClick={() => { setProjectMenuOpen(false); void openProject(); }}><span>↗</span><strong>Open Project…</strong><kbd>⌘O</kbd></button>
+            <button role="menuitem" disabled={projectBusy} onClick={() => { setProjectMenuOpen(false); void saveProjectAs(); }}><span>⇩</span><strong>Save As…</strong><kbd>⇧⌘S</kbd></button>
+            {recentProjects.length > 1 && <div className="project-menu-label">RECENT PROJECTS</div>}
+            {recentProjects.filter((project) => project.path !== projectPath).slice(0, 6).map((project) => (
+              <button role="menuitem" className="recent-project" title={project.path} key={project.path} disabled={projectBusy} onClick={() => { setProjectMenuOpen(false); void openRecentProject(project.path); }}><span>◫</span><strong>{project.name}</strong></button>
+            ))}
+            {projectBusy && <div className="project-switching">Switching project…</div>}
+          </div>
+        )}
       </div>
 
       <div className="save-status" title="Project changes are saved">
