@@ -6,14 +6,21 @@ import { useShowStore } from "../store/showStore";
 export function Inspector() {
   const fixtures = useShowStore((state) => state.fixtures);
   const selectedIds = useShowStore((state) => state.selectedFixtureIds);
+  const stageObjects = useShowStore((state) => state.stageObjects);
+  const selectedStageObjectIds = useShowStore((state) => state.selectedStageObjectIds);
   const captureHistory = useShowStore((state) => state.captureFixtureHistory);
   const updateSelected = useShowStore((state) => state.updateSelectedFixtures);
+  const updateSelectedStageObjects = useShowStore((state) => state.updateSelectedStageObjects);
   const patchFixture = useShowStore((state) => state.patchFixture);
   const addUniverse = useShowStore((state) => state.addUniverse);
   const universeCount = useShowStore((state) => state.universeCount);
   const operationMode = useShowStore((state) => state.mode);
   const selected = fixtures.filter((fixtureItem) => selectedIds.includes(fixtureItem.id));
   const primary = selected[0];
+  const selectedStageObjects = stageObjects.filter((stageObject) =>
+    selectedStageObjectIds.includes(stageObject.id),
+  );
+  const primaryStageObject = selectedStageObjects[0];
   const [patchUniverse, setPatchUniverse] = useState(1);
   const [patchAddress, setPatchAddress] = useState(1);
 
@@ -22,6 +29,35 @@ export function Inspector() {
     setPatchUniverse(primary.universe || 1);
     setPatchAddress(primary.address || 1);
   }, [primary?.id, primary?.universe, primary?.address]);
+
+  if (!primary && primaryStageObject) {
+    return (
+      <aside className="panel inspector-panel" aria-label="Stage object inspector">
+        <div className="inspector-heading">
+          <div className="large-fixture-icon stage-object-large-icon">◇</div>
+          <div><small>{primaryStageObject.kind.toUpperCase()}</small><h2>{selectedStageObjects.length > 1 ? `${selectedStageObjects.length} Stage Objects` : primaryStageObject.name}</h2></div>
+          <button aria-label="Inspector options">•••</button>
+        </div>
+        <InspectorSection title="Stage Layout" open>
+          <label className="layout-text-field full-width"><span>Name</span><input key={`${primaryStageObject.id}-${primaryStageObject.name}`} defaultValue={primaryStageObject.name} onFocus={captureHistory} onBlur={(event) => updateSelectedStageObjects({ name: event.target.value })} /></label>
+          <div className="layout-field-grid">
+            <LayoutNumber label="X (m)" value={primaryStageObject.x} onStart={captureHistory} onCommit={(x) => updateSelectedStageObjects({ x })} />
+            <LayoutNumber label="Y (m)" value={primaryStageObject.y} onStart={captureHistory} onCommit={(y) => updateSelectedStageObjects({ y })} />
+            <LayoutNumber label="Width" value={primaryStageObject.width} min={0.1} onStart={captureHistory} onCommit={(width) => updateSelectedStageObjects({ width })} />
+            <LayoutNumber label="Height" value={primaryStageObject.height} min={0.1} onStart={captureHistory} onCommit={(height) => updateSelectedStageObjects({ height })} />
+            <LayoutNumber label="Rotation" value={primaryStageObject.rotation} onStart={captureHistory} onCommit={(rotation) => updateSelectedStageObjects({ rotation })} />
+            <LayoutNumber label="Opacity" value={primaryStageObject.opacity} min={0} max={1} step={0.05} onStart={captureHistory} onCommit={(opacity) => updateSelectedStageObjects({ opacity })} />
+            <label className="layout-text-field"><span>Layer</span><input key={`${primaryStageObject.id}-${primaryStageObject.layer}`} defaultValue={primaryStageObject.layer} onFocus={captureHistory} onBlur={(event) => updateSelectedStageObjects({ layer: event.target.value })} /></label>
+          </div>
+          <div className="layout-toggle-row">
+            <button className={primaryStageObject.locked ? "is-active" : ""} onClick={() => { captureHistory(); updateSelectedStageObjects({ locked: !primaryStageObject.locked }); }}>{primaryStageObject.locked ? "🔒 Locked" : "🔓 Unlocked"}</button>
+            <button className={primaryStageObject.hidden ? "is-active" : ""} onClick={() => { captureHistory(); updateSelectedStageObjects({ hidden: !primaryStageObject.hidden }); }}>{primaryStageObject.hidden ? "Hidden" : "Visible"}</button>
+          </div>
+        </InspectorSection>
+        <div className="patch-summary stage-object-summary"><span>VISUAL OBJECT · NO DMX CHANNELS</span><small>Stage objects are stored with the layout and never affect patched output.</small></div>
+      </aside>
+    );
+  }
 
   if (!primary) {
     return (
@@ -116,12 +152,16 @@ function LayoutNumber({
   label,
   value,
   min,
+  max,
+  step = 0.1,
   onStart,
   onCommit,
 }: {
   label: string;
   value: number;
   min?: number;
+  max?: number;
+  step?: number;
   onStart: () => void;
   onCommit: (value: number) => void;
 }) {
@@ -131,8 +171,9 @@ function LayoutNumber({
       <input
         key={`${label}-${value}`}
         type="number"
-        step={0.1}
+        step={step}
         min={min}
+        max={max}
         defaultValue={Number(value.toFixed(2))}
         onFocus={onStart}
         onBlur={(event) => {

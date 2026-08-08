@@ -1,6 +1,7 @@
 export type OperationMode = "edit" | "live";
 
 export type FixtureKind = "dimmer" | "par" | "moving-head" | "strobe";
+export type StageObjectKind = "truss" | "speaker" | "stage" | "person" | "shape";
 
 export interface LayoutFixture {
   id: string;
@@ -55,8 +56,30 @@ export interface StageBackground {
   locked: boolean;
 }
 
+export interface StageObject {
+  id: string;
+  name: string;
+  kind: StageObjectKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  locked: boolean;
+  hidden: boolean;
+  layer: string;
+  opacity: number;
+}
+
+export interface GroupSummary {
+  id: string;
+  name: string;
+  fixtureIds: string[];
+}
+
 export interface FixtureSnapshot {
   fixtures: LayoutFixture[];
+  stageObjects: StageObject[];
 }
 
 export interface CueEntrySummary {
@@ -118,6 +141,8 @@ export interface EngineView {
 export interface ProjectView {
   name: string;
   fixtures: LayoutFixture[];
+  stageObjects: StageObject[];
+  groups: GroupSummary[];
   scenes: SceneSummary[];
   cueLists: CueListSummary[];
   effects: EffectSummary[];
@@ -162,6 +187,10 @@ export interface LayoutUpdate {
   layer: string;
 }
 
+export interface StageObjectUpdate extends Omit<StageObject, "id" | "kind"> {
+  objectId: string;
+}
+
 export type ProjectCommand =
   | { type: "updateLayouts"; data: { layouts: LayoutUpdate[] } }
   | { type: "patchFixture"; data: { fixtureId: string; universe: number; address: number } }
@@ -170,4 +199,15 @@ export type ProjectCommand =
   | { type: "deleteFixtures"; data: { fixtureIds: string[] } }
   | { type: "addUniverse" }
   | { type: "putBackground"; data: { name: string; mime: string; bytes: number[] } }
-  | { type: "removeBackground" };
+  | { type: "removeBackground" }
+  | { type: "addStageObject"; data: { kind: StageObjectKind; name: string; x: number; y: number } }
+  | { type: "updateStageObjects"; data: { objects: StageObjectUpdate[] } }
+  | { type: "duplicateStageObjects"; data: { objectIds: string[] } }
+  | { type: "deleteStageObjects"; data: { objectIds: string[] } }
+  | { type: "putGroup"; data: { groupId: string | null; name: string; fixtureIds: string[] } }
+  | { type: "deleteGroup"; data: { groupId: string } }
+  | { type: "captureScene"; data: { name: string; fixtureIds: string[]; fadeMs: number } }
+  | { type: "updateScene"; data: { sceneId: string; name: string; fadeMs: number } }
+  | { type: "deleteScene"; data: { sceneId: string } }
+  | { type: "addCue"; data: { cueListId: string | null; sceneId: string } }
+  | { type: "deleteCue"; data: { cueListId: string; index: number } };

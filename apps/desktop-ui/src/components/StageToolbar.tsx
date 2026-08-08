@@ -10,6 +10,14 @@ export function StageToolbar() {
   const importBackground = useShowStore((state) => state.importBackground);
   const removeBackground = useShowStore((state) => state.removeBackground);
   const background = useShowStore((state) => state.background);
+  const snapEnabled = useShowStore((state) => state.snapEnabled);
+  const toggleSnap = useShowStore((state) => state.toggleSnap);
+  const fixtures = useShowStore((state) => state.fixtures);
+  const stageObjects = useShowStore((state) => state.stageObjects);
+  const layerCount = new Set([
+    ...fixtures.map((fixtureItem) => fixtureItem.layer),
+    ...stageObjects.map((stageObject) => stageObject.layer),
+  ]).size;
 
   return (
     <div className="stage-toolbar" role="toolbar" aria-label="Stage tools">
@@ -26,8 +34,8 @@ export function StageToolbar() {
       </div>
       <div className="tool-separator" />
       <button className="wide-tool"># GRID <span>1 m</span></button>
-      <button className="wide-tool">⌁ SNAP <span>ON</span></button>
-      <button className="wide-tool">▱ LAYERS <span>2</span></button>
+      <button className={`wide-tool ${snapEnabled ? "is-active" : ""}`} onClick={toggleSnap}>⌁ SNAP <span>{snapEnabled ? "ON" : "OFF"}</span></button>
+      <button className="wide-tool">▱ LAYERS <span>{layerCount}</span></button>
       <div className="toolbar-spacer" />
       <input
         ref={inputRef}
