@@ -1,158 +1,176 @@
 # LightHouse – používateľský návod
 
-Tento návod je určený pre prvé spustenie aplikácie LightHouse na macOS. Prevedie vás od prázdneho projektu až po prvú svetelnú scénu a jednoduchý cue list.
+Tento návod opisuje aktuálnu macOS MVP verziu LightHouse: od vytvorenia projektu cez patch svetiel až po spustenie show v režime Live.
 
-> Bezpečný začiatok: pred pripojením reálnych svetiel nastavte `GRAND MASTER` na 0 %. Najprv skontrolujte patch a až potom intenzitu pomaly zvýšte. Tlačidlo `BLACKOUT` okamžite zníži intenzitu všetkých svetiel na nulu.
+> Bezpečný začiatok: pred povolením fyzického DMX výstupu nastavte `MASTER` na 0 % alebo zapnite `BLACKOUT`. Najprv skontrolujte DMX mode a adresy svetiel, až potom pomaly zvýšte intenzitu.
 
-## Čo znamenajú základné pojmy
+## Základné pojmy
 
 - **Fixture** – jedno svetlo alebo iné DMX zariadenie.
-- **DMX mode** – režim svetla, ktorý určuje počet a význam jeho DMX kanálov. Režim v LightHouse musí byť rovnaký ako režim nastavený priamo na svetle.
-- **Universe** – sada 512 DMX kanálov.
-- **Patch** – priradenie svetla ku konkrétnemu universe a počiatočnej DMX adrese.
-- **Scene** – uložený svetelný obraz, napríklad „Modrá scéna“ alebo „Kapela – refrén“.
-- **Cue list** – scény zoradené v poradí, v akom ich počas predstavenia spúšťate tlačidlom `GO`.
-- **Effect** – automatická zmena parametrov v čase, napríklad chase, pulse alebo vlna zľava doprava.
+- **DMX mode** – režim svetla určujúci počet a význam jeho kanálov. Musí byť rovnaký v LightHouse aj na fyzickom svetle.
+- **Universe** – 512 DMX kanálov.
+- **Patch** – priradenie fixture ku konkrétnemu universe a počiatočnej adrese.
+- **Scene** – uložený svetelný obraz. Môže obsahovať všetky alebo iba vybrané parametre.
+- **Cue list** – scény zoradené na postupné spúšťanie tlačidlom `GO`.
+- **Effect** – časová zmena parametrov, napríklad chase, pulse alebo priestorová vlna.
 
-## Rýchly štart: prvá scéna
+## Prvé spustenie a vytvorenie projektu
 
-### 1. Vytvorte projekt
+Po otvorení aplikácie sa zobrazí `Project Browser` s naposledy použitými projektmi.
 
-1. Otvorte LightHouse.
-2. Kliknite na názov projektu vľavo hore.
-3. Vyberte `New Project` alebo stlačte `Cmd+N`.
-4. Zvoľte názov a miesto uloženia súboru `.lightshow`.
+1. Dvojklikom otvorte existujúci projekt alebo kliknite na dlaždicu `New Project`.
+2. Zadajte názov a vyberte miesto pre súbor `.lightshow`.
+3. Prejdite päť krokov sprievodcu `Project Setup`: `Output`, `Fixtures & Patch`, `Stage Layout`, `Groups`, `Finish`.
+4. Kliknite na `Open Design Workspace`.
 
-LightHouse ukladá zmeny priebežne. `Save As…` (`Shift+Cmd+S`) vytvorí samostatnú kópiu projektu.
+LightHouse si pamätá posledný projekt a zmeny ukladá automaticky. Projektový súbor je verzovaný a pri ukladaní vzniká aj záloha `.bak`.
 
-### 2. Nastavte Art-Net výstup
+## Project Setup krok za krokom
 
-Ak zatiaľ nemáte pripojený Art-Net/DMX prevodník, tento krok môžete preskočiť a show si pripraviť bez neho.
+### 1. Output
 
-1. Zostaňte v režime `EDIT`.
-2. Kliknite na stav `Art-Net` v hornej lište.
-3. Pri `U1` zapnite `Output enabled`.
-4. Do `Destination IP : port` zadajte IP adresu Art-Net uzla, napríklad `192.168.1.50:6454`.
-5. `Port-address 0` predstavuje prvý Art-Net universe. Druhý je 1, tretí 2 atď.
-6. `Interface` nechajte prázdne, ak macOS nemá viac aktívnych sieťových pripojení.
-7. Kliknite `Apply & restart output`.
+Vyberte jeden spôsob pripojenia:
 
-Mac aj Art-Net uzol musia byť v kompatibilnej IP sieti. Ak uzol používa adresu `2.x.x.x`, nastavte ethernetovému adaptéru Macu adresu v rovnakej sieti. Presné nastavenie závisí od konkrétneho uzla.
+- `USB-DMX` – priamy FTDI kábel, napríklad DOREMiDi UTD-11,
+- `Art-Net` – DMX uzol pripojený cez sieť,
+- `No Output` – bezpečná príprava show bez fyzického výstupu.
 
-Úspešný výstup spoznáte podľa rastúceho počtu `Frames sent` a hodnoty `Send errors = 0`. Počet odoslaných UDP paketov sám osebe nepotvrdzuje, že ich fyzický uzol prijal, preto skontrolujte aj jeho stavové kontrolky alebo webové rozhranie.
+Pri `USB-DMX` aplikácia zobrazí nájdené zariadenie. Detekcia je iba na čítanie: v tomto kroku sa žiadne DMX dáta neposielajú. Kábel sa do projektu uloží so zakázaným výstupom a aktivuje sa až neskôr v `Output Settings`.
 
-### 3. Pridajte svetlo
+Na macOS môže byť DOREMiDi zobrazené napríklad ako `FTDI USB-DMX / Serial Interface — /dev/cu.usbserial-…`. Jeden USB-DMX kábel obsluhuje jeden universe.
 
-1. Skontrolujte, že hore svieti režim `EDIT`.
-2. V ľavom paneli otvorte kartu `Fixtures`.
-3. Kliknite na `+` vedľa vyhľadávania.
-4. Vyhľadajte výrobcu alebo model.
-5. Vyberte presný `DMX mode`, ktorý máte nastavený na fyzickom svetle.
-6. Voliteľne zadajte vlastný názov, napríklad `Front Left PAR`.
-7. Kliknite `Add & Auto-patch`.
+Pri `Art-Net` zadajte cieľovú IP adresu a port, štandardne `6454`. Mac aj Art-Net uzol musia byť v kompatibilnej IP sieti.
 
-Aplikácia vyberie prvú voľnú DMX adresu. Adresa sa zobrazuje pri svetle vľavo vo formáte napríklad `U1 · 17`.
+### 2. Fixtures & Patch
 
-Ak profil nenájdete, použite `Create Custom Fixture`. Podľa manuálu svetla pridajte kanály a priraďte im logické funkcie, napríklad:
+Fixture Manager je rozdelený podobne ako v Lightkey:
 
-- dimmer → `intensity`
-- červená → `color.red`
-- zelená → `color.green`
-- modrá → `color.blue`
-- pan → `position.pan`
-- tilt → `position.tilt`
-- zoom → `beam.zoom`
+- vľavo je vyhľadávanie, zoznam výrobcov a dostupné profily,
+- vpravo je vizuálna mriežka všetkých 512 kanálov zvoleného universe.
 
-### 4. Skontrolujte patch
+Postup pridania svetiel:
 
-1. Kliknite na svetlo v ľavom zozname alebo na 2D ploche.
-2. Úplne dole v pravom inšpektore nájdete `PATCH`.
-3. Skontrolujte `Universe` a `Address`.
-4. Ak ich zmeníte, potvrďte tlačidlom `APPLY`.
-5. Ďalší universe pridáte cez `+ UNIVERSE`.
+1. Vyhľadajte výrobcu a model.
+2. Vyberte presný `DMX mode` nastavený na fyzickom svetle.
+3. Zadajte krátky názov, počet kusov, universe a počiatočnú adresu.
+4. Kliknite `Find Free`, ak má aplikácia automaticky nájsť prvý voľný súvislý blok.
+5. Skontrolujte farebný náhľad obsadených kanálov a kliknite `Patch`.
 
-Fyzické svetlo musí mať nastavenú rovnakú počiatočnú adresu aj rovnaký DMX mode. Dve svetlá s rôznymi funkciami sa nesmú v rovnakom universe prekrývať, pokiaľ ich zámerne nechcete ovládať spoločne na tej istej adrese.
+Adresný konflikt sa označí červenou a patch nemožno potvrdiť, kým ho neopravíte. Pri viacerých kusoch sa adresy prideľujú za sebou podľa veľkosti zvoleného DMX mode.
 
-### 5. Usporiadajte 2D Stage
+Ak profil nenájdete, otvorte `Custom Profiles`. Podľa manuálu svetla vytvorte mode a priraďte význam každému kanálu, napríklad:
 
-- Svetlo vyberiete kliknutím a presuniete ťahaním myšou.
-- Viac svetiel vyberiete podržaním `Shift` alebo obdĺžnikovým výberom.
-- Kolieskom približujete a odďaľujete; plochu môžete posúvať nástrojom Pan.
-- `SNAP` zapína prichytávanie k mriežke.
-- PNG alebo JPG pôdorys pridáte cez `ADD FLOOR PLAN` v hornej lište nad Stage.
-- Karty `Objects` a `Layers` vľavo slúžia na vizuálne objekty a organizáciu. Stage objekty neposielajú DMX.
+- dimmer → `intensity`,
+- red/green/blue → `color.red`, `color.green`, `color.blue`,
+- pan/tilt → `position.pan`, `position.tilt`,
+- zoom → `beam.zoom`.
 
-## Ovládanie svetiel
+### 3. Stage Layout
 
-Vyberte jedno alebo viac svetiel. V pravom inšpektore sa zobrazia dostupné ovládače:
+Vyberte `Front View` alebo `Top View`. Voliteľne pridajte PNG/JPG obrázok pôdorysu; aplikácia ho použije ako zamknuté pozadie. Orientáciu môžete neskôr prepínať aj priamo v pracovnom priestore.
 
-- `Intensity / Dimmer` – jas,
+### 4. Groups
+
+Pomenujte skupinu a vyberte fixtures, ktoré do nej patria, napríklad `Front Wash` alebo `Moving Heads`. Skupiny uľahčujú spoločný výber, ovládanie a aplikovanie efektov.
+
+### 5. Finish
+
+Skontrolujte súhrn výstupu, patchnutých kanálov, Stage a skupín. `Open Design Workspace` otvorí hlavný pracovný priestor.
+
+## Design Workspace
+
+Hlavná plocha má tri časti:
+
+- uprostred je interaktívny 2D Stage,
+- vpravo je paleta `Colors`, `Positions`, `Scenes`, `Effects` a `Fixture Groups`,
+- dole sa prepína `Fixture Controls` a `Scenes · Cues · Effects`.
+
+Fixture vyberiete kliknutím. Dvojklik otvorí jeho detailné nastavenia. Viac fixtures vyberiete so `Shift` alebo obdĺžnikovým výberom. Vybrané objekty možno presúvať, kopírovať, duplikovať a odstrániť; Stage podporuje zoom, pan, mriežku, vrstvy a undo/redo.
+
+PNG/JPG pôdorys je iba orientačné pozadie a neposiela DMX. Fixture na Stage a jeho patch zdieľajú rovnaké ID, ale poloha na Stage nemení DMX adresu.
+
+### Ovládanie fixture
+
+V `Fixture Controls` sa podľa profilu zobrazia logické parametre:
+
+- `Intensity` – jas,
 - `Color` – farba,
-- `Pan` a `Tilt` – poloha moving headu,
+- `Pan` a `Tilt` – smer moving headu,
 - `Zoom` – šírka lúča,
-- `Fixture Channels` – ďalšie funkcie konkrétneho profilu.
+- ďalšie funkcie konkrétneho fixture profilu.
 
-Ak je vybraných viac svetiel, zmena sa aplikuje na celý výber. Skupinu vytvoríte tak, že vyberiete svetlá, vľavo otvoríte `Groups` a stlačíte `+`.
+UI mení iba tieto logické parametre. DMX engine ich samostatne prekladá na fyzické kanály.
 
-## Scény a cue list
+## Scény, cues a effects
 
-### Uloženie scény
+V spodnom paneli vyberte `Scenes · Cues · Effects`.
+
+### Scene
 
 1. Nastavte požadovaný svetelný obraz.
-2. Dole otvorte `SCENES`.
-3. Rozhodnite, čo sa má uložiť:
-   - ak sú vybrané konkrétne svetlá, vytvorí sa **partial scene** iba pre ne;
-   - ak nie je vybrané žiadne svetlo, uložia sa všetky svetlá.
-4. Kliknite `Capture Scene` alebo `+ SCENE`.
-5. Zadajte názov a `Default fade` v sekundách.
-6. Potvrďte `Capture Scene`.
+2. Vyberte fixtures pre partial scénu alebo výber zrušte, ak chcete uložiť celý stav.
+3. Kliknite `+ Scene`, zadajte názov a `Default fade`.
+4. Scénu aktivujte kliknutím na jej dlaždicu.
 
-Kliknutím na dlaždicu scény ju okamžite aktivujete. Pri súbehu scén platí pravidlo „posledná scéna vyhrá“ pre parametre, ktoré daná scéna obsahuje.
+Pri súbehu scén platí pre uložené parametre pravidlo „posledná scéna vyhrá“.
 
 ### Cue list
 
-1. Pri každej scéne kliknite `+ CUE`.
-2. Otvorte kartu `CUE LIST` a skontrolujte poradie.
-3. `GO` spustí nasledujúci cue, `BACK` sa vráti o krok a `Ⅱ` prechod pozastaví.
+Pridajte scény do cue listu a určte ich poradie. `GO` spustí nasledujúci cue, `BACK` sa vráti a `PAUSE` pozastaví prebiehajúci prechod.
 
-### Live panel
+### Effects, chase a fanning
 
-Pri scéne kliknite `+ LIVE`. V karte `LIVE PANEL` vznikne veľké tlačidlo vhodné na priame spúšťanie počas show. Tlačidlo `LIVE WINDOW` hore otvorí samostatné okno, ktoré môžete presunúť na druhý monitor.
+Vyberte fixtures, zvoľte šablónu efektu, parameter, rýchlosť, amplitúdu a prípadnú synchronizáciu na beat. Chase je typ efektu, ktorý aktivuje svetlá postupne. Priestorové efekty používajú X/Y polohu fixture zo Stage, napríklad na vlnu zľava doprava.
 
-## EDIT a LIVE
+Fanning rovnomerne rozloží hodnoty medzi vybrané fixtures. Príklad: piatim moving headom rozdelí Pan tak, aby nemierili všetky na rovnaké miesto.
 
-- `EDIT` slúži na pridávanie svetiel, patch, úpravu scén a prípravu show.
-- `LIVE` zamkne rizikové štrukturálne zmeny. Počas predstavenia používajte Live Panel alebo Cue List.
-- `GRAND MASTER` násobí celkovú intenzitu výstupu.
-- `BLACKOUT` okamžite nastaví intenzity na nulu. Opätovným kliknutím sa vrátite k predchádzajúcemu výstupu.
-- `FREEZE` podrží aktuálny výstup, kým pripravujete ďalšie zmeny.
-- `BLIND` umožňuje meniť hodnoty bez okamžitého odoslania na živý výstup. `COMMIT` ich odošle, `CLEAR` ich zahodí.
+Tempo možno zadať ako BPM, opakovane vyklikať cez `TAP` alebo načítať cez `MIC`. Pri prvom použití mikrofónu macOS požiada o povolenie; LightHouse potom generuje beat impulzy z analyzovaného zvuku.
 
-## Efekty, chase a tempo
+## Live Workspace
 
-1. Vyberte svetlá, na ktorých má efekt bežať. Bez výberu sa použijú všetky vhodné svetlá.
-2. Otvorte dole kartu `EFFECTS`.
-3. Kliknite `+ EFFECT`.
-4. Vyberte šablónu, parameter, rýchlosť, amplitúdu a prípadne `Beat sync`.
-5. Uložte efekt a spustite ho kliknutím na jeho riadok.
+Prepínačom hore prejdite z `Design` do `Live`. Naľavo je `MASTER`, tempo, `TAP` a `MIC`; uprostred je Live plocha a napravo prehľad skratiek.
 
-Chase je jeden z typov efektu. Svetlá sa zapínajú postupne v poradí. Pri priestorových efektoch sa môže použiť ich X/Y poloha z 2D Stage, napríklad vlna zľava doprava.
+### Úprava Live tlačidiel
 
-`FAN` rozdelí rozsah hodnôt medzi vybrané svetlá. Príklad: pri piatich moving headoch rozloží Pan zľava doprava tak, aby netrafili všetky na jedno miesto.
+1. Kliknite `Edit`.
+2. Vyberte tlačidlo a presuňte ho ťahaním.
+3. Jeho veľkosť upravte ktorýmkoľvek z ôsmich modrých bodov po obvode.
+4. Nastavte vlastnú farbu a správanie `Toggle`, `Flash`, `Push` alebo `Radio`.
+5. Kliknite `Done`, čím sa rozloženie zamkne proti náhodným úpravám.
 
-Tempo nastavíte tromi spôsobmi:
+Tlačidlá sa prichytávajú k mriežke, neprekrývajú sa a ich poloha aj veľkosť sa ukladajú do projektu. Tlačidlo `▣` v hornej lište otvorí Live panel v samostatnom okne pre druhý monitor.
 
-- zadaním BPM,
-- opakovaným klikaním `TAP` do rytmu,
-- tlačidlom `MIC`, ktoré po povolení mikrofónu odhaduje beat prehrávanej hudby.
+Správanie tlačidiel:
 
-## Klávesové skratky
+- `Toggle` – prvé stlačenie zapne, druhé vypne,
+- `Flash` – aktivuje obsah iba počas držania,
+- `Push` – vykoná jednorazový príkaz,
+- `Radio` – aktivuje jedno tlačidlo z rovnakej skupiny a vypne ostatné.
+
+## Bezpečnostné ovládanie
+
+- `MASTER` násobí celkovú intenzitu výstupu.
+- `BLACKOUT` okamžite zníži intenzity na nulu; ďalším stlačením obnoví predchádzajúci stav.
+- `FREEZE` podrží aktuálny výstup počas prípravy ďalších zmien.
+- `BLIND` umožňuje pripraviť zmeny bez ich okamžitého odoslania; následne ich možno potvrdiť alebo zahodiť.
+
+DMX output beží oddelene od UI. Dočasné zamrznutie okna preto nezastaví aktuálne odosielaný svetelný stav.
+
+## Zapnutie fyzického výstupu
+
+1. Nastavte `MASTER` na 0 % alebo zapnite `BLACKOUT`.
+2. Kliknite na ikonu `⌁` vpravo hore (`Output Settings`).
+3. Pre každý universe vyberte `Art-Net`, `USB-DMX (FTDI)` alebo `No output`.
+4. Pri USB vyberte detegovaný kábel a zapnite output. Pri Art-Net zadajte destination a port-address.
+5. Kliknite na použitie nastavení.
+6. Pri USB aplikácia ešte raz upozorní, že fyzické svetlá môžu okamžite zmeniť stav. Pokračujte iba po kontrole patchu.
+
+LightHouse používa pre FTDI/Open-DMX USB pripojenie 250000 baud, 8N2 a samostatné DMX Break/MAB časovanie. Art-Net aj USB sú samostatné output adaptéry; show engine nie je viazaný na konkrétny transport.
+
+## Klávesové skratky pre úpravu Stage
 
 | Skratka | Funkcia |
 |---|---|
-| `Cmd+N` | nový projekt |
-| `Cmd+O` | otvoriť projekt |
-| `Shift+Cmd+S` | uložiť kópiu |
 | `Cmd+Z` / `Shift+Cmd+Z` | späť / znova |
 | `Cmd+C` / `Cmd+V` | kopírovať / vložiť |
 | `Cmd+D` | duplikovať výber |
@@ -161,19 +179,28 @@ Tempo nastavíte tromi spôsobmi:
 
 ## Keď svetlo nereaguje
 
-Skontrolujte postupne:
+Najprv skontrolujte spoločné príčiny:
 
-1. Nie je aktívny `BLACKOUT` a `GRAND MASTER` je vyššie ako 0 %.
-2. Intenzita vybraného svetla je vyššie ako 0 %.
-3. Fyzické svetlo má správny DMX mode a adresu.
-4. Svetlo je patchnuté do universe, ktorý má zapnutý Art-Net output.
-5. Destination IP smeruje na správny Art-Net uzol a používa port `6454`.
-6. Mac a Art-Net uzol sú v kompatibilnej sieti a macOS firewall alebo Wi-Fi neblokuje komunikáciu.
-7. V Art-Net diagnostike rastie `Frames sent` a `Send errors` ostáva 0.
-8. Art-Net port-address v LightHouse zodpovedá universe nastavenému na uzle.
+1. `BLACKOUT` nie je aktívny a `MASTER` je vyššie ako 0 %.
+2. Fixture má intenzitu vyššiu ako 0 %.
+3. Fyzické svetlo má rovnaký DMX mode a počiatočnú adresu ako projekt.
+4. Fixture je patchnuté do správneho universe a output je zapnutý.
 
-## Ukladanie a obnova
+Pri USB-DMX navyše skontrolujte:
 
-Projekt sa ukladá automaticky pri štrukturálnych zmenách. Pri prepise vzniká aj záložný súbor `.bak`. Ak sa hlavný projekt poškodí, LightHouse sa pokúsi načítať overenú zálohu a zobrazí informáciu o obnove.
+5. Zvolený je správny `/dev/cu.usbserial-…` port a kábel nie je otvorený inou aplikáciou.
+6. Kábel vedie z konektora `DMX OUT` do vstupu prvého svetla a DMX reťazec je správne ukončený.
 
-Podrobné technické informácie sú v [architektonickej dokumentácii](architecture/ARCHITECTURE.md).
+Pri Art-Net navyše skontrolujte:
+
+5. Destination IP a UDP port `6454` smerujú na správny uzol.
+6. Mac a uzol sú v kompatibilnej sieti a firewall komunikáciu neblokuje.
+7. Art-Net port-address v LightHouse zodpovedá universe nastavenému na uzle.
+
+## Ukladanie, obnova a projektové menu
+
+Kliknutím na názov projektu vľavo hore otvoríte menu s položkami `Project Browser`, `Project Setup…`, `Manage Fixtures…`, `Open Project…` a `Save As…`.
+
+Projekt sa ukladá automaticky pri štrukturálnych zmenách. Pri prepise vzniká záložný súbor `.bak`; pri poškodení hlavného súboru sa LightHouse pokúsi obnoviť overenú zálohu.
+
+Podrobnosti pre vývojárov sú v [architektonickej dokumentácii](architecture/ARCHITECTURE.md).

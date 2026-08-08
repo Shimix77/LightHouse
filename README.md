@@ -24,7 +24,7 @@ The Rust engine has no UI or physical-DMX dependency. Its modules cover:
 - canonical fixture modes with 8/16-bit DMX bindings;
 - conflict-safe patching and unlimited logical universe identifiers;
 - logical-parameter resolution into 512-slot DMX frames;
-- a protocol-independent output API, virtual DMX output and Art-Net adapter;
+- a protocol-independent output API with virtual DMX, Art-Net and FTDI/Open-DMX USB adapters;
 - an independent configurable 30–44 Hz output loop with hold-last-look, watchdog and safety blackout;
 - one versioned command/event path for UI and future external controllers;
 - partial-scene LTP layering, deterministic fades, cue GO/BACK/PAUSE and Blind/Freeze;
@@ -33,10 +33,14 @@ The Rust engine has no UI or physical-DMX dependency. Its modules cover:
 The desktop workspace adds:
 
 - a Tauri 2 macOS window prepared for later Windows builds;
-- a React 19 professional dark UI with EDIT/LIVE safety separation;
+- a React 19 professional dark UI with a Project Browser, guided setup and DESIGN/LIVE safety separation;
 - a PixiJS 8 WebGL stage editor with zoom, pan, rectangle and multi-selection;
-- fixture, inspector, scene/cue, grand-master, Blackout, Blind and Freeze controls;
+- a Lightkey-inspired fixture library and visual 512-channel patch manager;
+- fixture, scene/cue/effect, grand-master, Blackout, Blind and Freeze controls;
+- movable, resizable and color-configurable Live buttons with toggle, flash, push and radio behavior;
 - PNG/JPG floor-plan backgrounds and keyboard editing shortcuts.
+
+Physical USB-DMX output is disabled when first configured. Enabling it later in Output Settings requires an explicit confirmation before LightHouse opens the serial device and begins transmitting.
 
 Run the full verification suite with:
 
@@ -64,3 +68,9 @@ Create the internal ad-hoc signed DMG installer with `pnpm desktop:dmg`. Public 
 
 For a local end-to-end check, start `lighthouse-virtual-dmx-node`, then run
 `lighthouse-show-engine-app`. The demo sends a two-second Art-Net look to localhost.
+
+With explicit authorization and the physical output safely connected, a USB-DMX blackout-only smoke test is available:
+
+```sh
+cargo run -p lighthouse-output-usb-dmx --example blackout_smoke -- /dev/cu.usbserial-DEVICE
+```

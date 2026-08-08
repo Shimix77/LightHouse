@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 
 import {
   createProject,
@@ -136,6 +136,7 @@ interface ShowUiState {
   addLiveControl: (label: string, sceneId: string | null, effectId: string | null) => void;
   deleteLiveControl: (controlId: string) => void;
   triggerLiveControl: (controlId: string) => void;
+  releaseLiveControl: (controlId: string) => void;
   updateLiveControlLayout: (controlId: string, update: Pick<LiveControlSummary, "gridX" | "gridY" | "width" | "height" | "color" | "behavior">) => Promise<boolean>;
   setLivePage: (page: number) => void;
   hydrateEngine: (bootstrap: EngineBootstrap) => void;
@@ -775,15 +776,30 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       void mutateProject({ type: "deleteLiveControl", data: { controlId } });
     },
     triggerLiveControl: (controlId) => {
-      const control = get().liveControls.find((entry) => entry.id === controlId);
-      if (control?.sceneId) get().activateScene(control.sceneId);
-      if (control?.effectId) {
-        const effect = get().effects.find((entry) => entry.id === control.effectId);
-        if (effect) {
-          dispatch(effect.active
-            ? { type: "stopEffect", data: { effectId: effect.id } }
-            : { type: "startEffect", data: { effectId: effect.id, fixtureIds: [] } });
+      const state = get();
+      const control = state.liveControls.find((entry) => entry.id === controlId);
+      if (!control) return;
+      const active = isLiveTargetActive(control, state.scenes, state.effects);
+
+      if (control.behavior === "radio") {
+        for (const other of state.liveControls) {
+          if (other.id !== control.id && other.page === control.page && other.behavior === "radio") {
+            setLiveTargetActive(other, false, get, set, dispatch);
+          }
         }
+        setLiveTargetActive(control, true, get, set, dispatch);
+        return;
+      }
+      if (control.behavior === "push" || control.behavior === "flash") {
+        setLiveTargetActive(control, true, get, set, dispatch);
+        return;
+      }
+      setLiveTargetActive(control, !active, get, set, dispatch);
+    },
+    releaseLiveControl: (controlId) => {
+      const control = get().liveControls.find((entry) => entry.id === controlId);
+      if (control?.behavior === "flash") {
+        setLiveTargetActive(control, false, get, set, dispatch);
       }
     },
     updateLiveControlLayout: (controlId, update) => mutateProject({
@@ -1002,6 +1018,49 @@ function snapshot(fixtures: LayoutFixture[], stageObjects: StageObject[]): Fixtu
     })),
     stageObjects: stageObjects.map((stageObject) => ({ ...stageObject })),
   };
+}
+
+function isLiveTargetActive(
+  control: LiveControlSummary,
+  scenes: SceneSummary[],
+  effects: EffectSummary[],
+): boolean {
+  if (control.sceneId) return scenes.some((scene) => scene.id === control.sceneId && scene.active);
+  return effects.some((effect) => effect.id === control.effectId && effect.active);
+}
+
+function setLiveTargetActive(
+  control: LiveControlSummary,
+  enabled: boolean,
+  getState: StoreApi<ShowUiState>["getState"],
+  setState: StoreApi<ShowUiState>["setState"],
+  dispatch: EngineDispatch,
+): void {
+  const state = getState();
+  if (control.sceneId) {
+    const scene = state.scenes.find((entry) => entry.id === control.sceneId);
+    if (!scene || scene.active === enabled) return;
+    setState((current) => ({
+      scenes: current.scenes.map((entry) =>
+        entry.id === control.sceneId ? { ...entry, active: enabled } : entry
+      ),
+    }));
+    dispatch(enabled
+      ? { type: "activateScene", data: { sceneId: scene.id, fadeMs: null } }
+      : { type: "releaseScene", data: { sceneId: scene.id, fadeMs: null } });
+    return;
+  }
+
+  const effect = state.effects.find((entry) => entry.id === control.effectId);
+  if (!effect || effect.active === enabled) return;
+  setState((current) => ({
+    effects: current.effects.map((entry) =>
+      entry.id === control.effectId ? { ...entry, active: enabled } : entry
+    ),
+  }));
+  dispatch(enabled
+    ? { type: "startEffect", data: { effectId: effect.id, fixtureIds: [] } }
+    : { type: "stopEffect", data: { effectId: effect.id } });
 }
 
 function clamp(value: number): number {

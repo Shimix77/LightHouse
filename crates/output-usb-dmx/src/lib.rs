@@ -13,6 +13,8 @@ pub const DMX_START_CODE: u8 = 0;
 pub const DEFAULT_BREAK: Duration = Duration::from_micros(120);
 pub const DEFAULT_MARK_AFTER_BREAK: Duration = Duration::from_micros(16);
 const SERIAL_TIMEOUT: Duration = Duration::from_millis(20);
+const OPEN_RETRY_DELAY: Duration = Duration::from_millis(100);
+const OPEN_ATTEMPTS: usize = 3;
 const FTDI_VENDOR_ID: u16 = 0x0403;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,16 +96,40 @@ impl OpenDmxOutput<SerialTransport> {
     /// Calling this function claims the device and enables physical DMX transmission.
     pub fn open(device_path: &str, universe_id: UniverseId) -> io::Result<Self> {
         validate_device_path(device_path)?;
-        let port = serialport::new(device_path, DMX_BAUD_RATE)
-            .data_bits(DataBits::Eight)
-            .flow_control(FlowControl::None)
-            .parity(Parity::None)
-            .stop_bits(StopBits::Two)
-            .timeout(SERIAL_TIMEOUT)
-            .open()
-            .map_err(serial_error)?;
-        Ok(Self::with_transport(universe_id, SerialTransport { port }))
+        let mut last_error = None;
+        for attempt in 0..OPEN_ATTEMPTS {
+            match open_serial_device(device_path) {
+                Ok(port) => {
+                    return Ok(Self::with_transport(universe_id, SerialTransport { port }));
+                }
+                Err(error) => {
+                    let retryable = !matches!(
+                        error.kind(),
+                        io::ErrorKind::InvalidInput
+                            | io::ErrorKind::NotFound
+                            | io::ErrorKind::PermissionDenied
+                    );
+                    last_error = Some(error);
+                    if !retryable || attempt + 1 == OPEN_ATTEMPTS {
+                        break;
+                    }
+                    thread::sleep(OPEN_RETRY_DELAY);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| io::Error::other("USB-DMX device failed to open")))
     }
+}
+
+fn open_serial_device(device_path: &str) -> io::Result<Box<dyn SerialPort>> {
+    serialport::new(device_path, DMX_BAUD_RATE)
+        .data_bits(DataBits::Eight)
+        .flow_control(FlowControl::None)
+        .parity(Parity::None)
+        .stop_bits(StopBits::Two)
+        .timeout(SERIAL_TIMEOUT)
+        .open()
+        .map_err(serial_error)
 }
 
 impl<T: OpenDmxTransport> OpenDmxOutput<T> {

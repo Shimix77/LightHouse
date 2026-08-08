@@ -23,6 +23,7 @@ export function LivePanel() {
   const maxPage = useMemo(() => Math.max(1, ...controls.map((control) => control.page)), [controls]);
   const activeScenes = new Set(scenes.filter((scene) => scene.active).map((scene) => scene.id));
   const activeEffects = new Set(effects.filter((effect) => effect.active).map((effect) => effect.id));
+  const release = useShowStore((state) => state.releaseLiveControl);
 
   const layoutOf = (control: LiveControlSummary): Layout => drafts[control.id] ?? control;
   const commit = async (control: LiveControlSummary, next: Layout) => {
@@ -106,7 +107,35 @@ export function LivePanel() {
             "--live-color": layout.color,
           } as CSSProperties;
           return <article className={`live-control ${active ? "is-active" : ""} ${selected ? "is-selected" : ""}`} style={style} key={control.id} onPointerDown={(event) => beginGesture(event, control, "move")}>
-            <button className="live-trigger" onPointerDown={(event) => editing && event.preventDefault()} onClick={(event) => { if (editing) { event.preventDefault(); setSelectedId(control.id); } else trigger(control.id); }}><span>{control.sceneId ? "SCENE" : "EFFECT"}</span><strong>{control.label}</strong><i>{active ? "ACTIVE" : layout.behavior.toUpperCase()}</i>{active && <u />}</button>
+            <button
+              className="live-trigger"
+              onPointerDown={(event) => {
+                if (editing) {
+                  event.preventDefault();
+                } else if (layout.behavior === "flash") {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  trigger(control.id);
+                }
+              }}
+              onPointerUp={() => release(control.id)}
+              onPointerCancel={() => release(control.id)}
+              onKeyDown={(event) => {
+                if (!editing && layout.behavior === "flash" && !event.repeat && (event.key === " " || event.key === "Enter")) {
+                  trigger(control.id);
+                }
+              }}
+              onKeyUp={(event) => {
+                if (event.key === " " || event.key === "Enter") release(control.id);
+              }}
+              onClick={(event) => {
+                if (editing) {
+                  event.preventDefault();
+                  setSelectedId(control.id);
+                } else if (layout.behavior !== "flash") {
+                  trigger(control.id);
+                }
+              }}
+            ><span>{control.sceneId ? "SCENE" : "EFFECT"}</span><strong>{control.label}</strong><i>{active ? "ACTIVE" : layout.behavior.toUpperCase()}</i>{active && <u />}</button>
             {editing && <><button className="live-remove" aria-label={`Remove ${control.label}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => remove(control.id)}>×</button>{(["n", "ne", "e", "se", "s", "sw", "w", "nw"] as ResizeDirection[]).map((direction) => <i className={`resize-handle handle-${direction}`} key={direction} onPointerDown={(event) => beginGesture(event, control, direction)} />)}{selected && <output className="live-size-readout">{layout.width} × {layout.height}</output>}</>}
           </article>;
         })}
