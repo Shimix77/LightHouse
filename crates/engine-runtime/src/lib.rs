@@ -563,7 +563,7 @@ mod tests {
     use lighthouse_commands::Command;
     use lighthouse_domain::{NormalizedValue, ProjectId, UniverseId};
     use lighthouse_fixture_library::FixtureLibrary;
-    use lighthouse_output_api::VirtualDmxOutput;
+    use lighthouse_output_api::{VirtualDmxHandle, VirtualDmxOutput};
     use lighthouse_persistence::{FixtureRecord, PatchRecord, UniverseRecord};
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
@@ -622,6 +622,21 @@ mod tests {
         envelope
     }
 
+    fn wait_for_slot(handle: &VirtualDmxHandle, expected: u8) {
+        for _ in 0..100 {
+            let value = handle
+                .snapshot()
+                .last_frames
+                .and_then(|frames| frames.frame(UniverseId::new(1)).cloned())
+                .and_then(|frame| frame.slot(1));
+            if value == Some(expected) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        panic!("virtual DMX slot 1 did not reach {expected}");
+    }
+
     #[test]
     fn logical_commands_flow_through_the_runtime_to_virtual_dmx() {
         let (adapter, virtual_node) = VirtualDmxOutput::new();
@@ -641,17 +656,7 @@ mod tests {
             ))
             .unwrap();
         assert!(outcome.result.is_ok());
-        thread::sleep(Duration::from_millis(60));
-        assert_eq!(
-            virtual_node
-                .snapshot()
-                .last_frames
-                .unwrap()
-                .frame(UniverseId::new(1))
-                .unwrap()
-                .slot(1),
-            Some(255)
-        );
+        wait_for_slot(&virtual_node, 255);
         runtime.shutdown();
     }
 
@@ -694,17 +699,7 @@ mod tests {
                 PriorityLane::Safety,
             ))
             .unwrap();
-        thread::sleep(Duration::from_millis(40));
-        assert_eq!(
-            virtual_node
-                .snapshot()
-                .last_frames
-                .unwrap()
-                .frame(UniverseId::new(1))
-                .unwrap()
-                .slot(1),
-            Some(0)
-        );
+        wait_for_slot(&virtual_node, 0);
         runtime.shutdown();
     }
 
@@ -727,32 +722,12 @@ mod tests {
             ))
             .unwrap();
         client.set_watchdog_blackout(true);
-        thread::sleep(Duration::from_millis(50));
+        wait_for_slot(&virtual_node, 0);
         assert!(client.snapshot().telemetry.watchdog_blackout);
         assert!(!client.snapshot().show.blackout);
-        assert_eq!(
-            virtual_node
-                .snapshot()
-                .last_frames
-                .unwrap()
-                .frame(UniverseId::new(1))
-                .unwrap()
-                .slot(1),
-            Some(0)
-        );
 
         client.set_watchdog_blackout(false);
-        thread::sleep(Duration::from_millis(50));
-        assert_eq!(
-            virtual_node
-                .snapshot()
-                .last_frames
-                .unwrap()
-                .frame(UniverseId::new(1))
-                .unwrap()
-                .slot(1),
-            Some(255)
-        );
+        wait_for_slot(&virtual_node, 255);
         runtime.shutdown();
     }
 
@@ -783,17 +758,7 @@ mod tests {
             },
         )
         .unwrap();
-        thread::sleep(Duration::from_millis(50));
-        assert_eq!(
-            virtual_node
-                .snapshot()
-                .last_frames
-                .unwrap()
-                .frame(UniverseId::new(1))
-                .unwrap()
-                .slot(1),
-            Some(255)
-        );
+        wait_for_slot(&virtual_node, 255);
         runtime.shutdown();
         fs::remove_file(path).unwrap();
     }

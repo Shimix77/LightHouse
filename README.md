@@ -12,6 +12,7 @@ The project is under active MVP development. It combines a headless Rust show en
 - [Project format and recovery baseline](docs/behavior-specs/PROJECT_FORMAT.md)
 - [Engine sidecar and IPC baseline](docs/behavior-specs/ENGINE_SIDECAR.md)
 - [Fail-safe and crash-recovery behavior](docs/behavior-specs/FAILSAFE_RECOVERY.md)
+- [macOS bundle and sidecar packaging](docs/behavior-specs/MACOS_BUNDLE.md)
 
 ## Workspace
 
@@ -51,11 +52,13 @@ pnpm ui:dev
 pnpm desktop:dev
 ```
 
-Build the native executable without creating an installer with:
+Build the self-contained macOS application bundle with:
 
 ```sh
 pnpm desktop:build
 ```
+
+Create the internal ad-hoc signed DMG installer with `pnpm desktop:dmg`. Public distribution additionally requires Apple Developer ID signing and notarization credentials.
 
 For a local end-to-end check, start `lighthouse-virtual-dmx-node`, then run
 `lighthouse-show-engine-app`. The demo sends a two-second Art-Net look to localhost.

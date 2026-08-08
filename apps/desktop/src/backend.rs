@@ -165,6 +165,10 @@ impl DesktopBackend {
         self.switch_project(path, self.bundle.clone(), None)
     }
 
+    pub fn shutdown(&mut self) {
+        let _ = self.session.shutdown();
+    }
+
     #[must_use]
     pub fn project_path(&self) -> &Path {
         &self.project_path
@@ -318,7 +322,7 @@ impl DesktopBackend {
 
 impl Drop for DesktopBackend {
     fn drop(&mut self) {
-        let _ = self.session.shutdown();
+        self.shutdown();
     }
 }
 
