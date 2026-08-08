@@ -157,7 +157,7 @@ export function ObjectPanel() {
         </div>
       )}
 
-      <div className="panel-footer"><button><span className="status-dot is-good" /> {fixtures.length} fixtures · {stageObjects.length} objects</button><button title="Panel options">•••</button></div>
+      <div className="panel-footer"><span><i className="status-dot is-good" /> {fixtures.length} fixtures · {stageObjects.length} objects</span></div>
 
       {dialog === "fixture" && (
         <Dialog title="Add Fixture" eyebrow="FIXTURE LIBRARY" onClose={() => setDialog(null)} onSubmit={() => {

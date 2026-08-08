@@ -7,9 +7,10 @@ import { UserGuideDialog } from "./UserGuideDialog";
 interface ProjectBrowserProps {
   onOpenWorkspace: () => void;
   onStartSetup: () => void;
+  onOpenFixtureLibrary: () => void;
 }
 
-export function ProjectBrowser({ onOpenWorkspace, onStartSetup }: ProjectBrowserProps) {
+export function ProjectBrowser({ onOpenWorkspace, onStartSetup, onOpenFixtureLibrary }: ProjectBrowserProps) {
   const projectName = useShowStore((state) => state.projectName);
   const projectPath = useShowStore((state) => state.projectPath);
   const recentProjects = useShowStore((state) => state.recentProjects);
@@ -64,7 +65,7 @@ export function ProjectBrowser({ onOpenWorkspace, onStartSetup }: ProjectBrowser
 
       <section className="project-browser-links">
         <button onClick={() => setGuideOpen(true)}><span className="line-icon">▱</span><div><strong>Open User Guide</strong><small>Learn the first steps and prepare your first show.</small></div><b>›</b></button>
-        <button onClick={onStartSetup}><span className="line-icon">◉</span><div><strong>Offline Fixture Library</strong><small><i className="status-dot is-good" /> Ready for your show</small></div><b>›</b></button>
+        <button onClick={onOpenFixtureLibrary}><span className="line-icon">◉</span><div><strong>Offline Fixture Library</strong><small><i className="status-dot is-good" /> Ready for your show</small></div><b>›</b></button>
       </section>
 
       <section className="project-card-deck">

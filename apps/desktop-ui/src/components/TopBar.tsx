@@ -118,7 +118,7 @@ export function TopBar() {
         <div><strong>Art-Net</strong><small>{universeCount} universe{universeCount === 1 ? "" : "s"} · {refreshHz} Hz</small></div>
       </button>
 
-      <button className="guide-button" type="button" title="Otvoriť návod – prvé kroky" onClick={() => setUserGuideOpen(true)}>?</button>
+      <button className="guide-button" type="button" title="Open User Guide" onClick={() => setUserGuideOpen(true)}>?</button>
 
       <button className="live-window-button" title="Open Live panel on another display" onClick={() => { void openLiveDisplay(); }}>▣ LIVE WINDOW</button>
 

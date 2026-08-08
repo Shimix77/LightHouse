@@ -675,6 +675,45 @@ mod tests {
     }
 
     #[test]
+    fn command_burst_keeps_the_runtime_responsive_and_reaches_virtual_dmx() {
+        let (adapter, virtual_node) = VirtualDmxOutput::new();
+        let runtime =
+            EngineRuntime::start(sample_project(), adapter, EngineRuntimeConfig::default())
+                .unwrap();
+        let client = runtime.client();
+        let frames_before = virtual_node.snapshot().send_count;
+
+        for index in 0..2_000_u128 {
+            let value = if index % 2 == 0 {
+                NormalizedValue::ZERO
+            } else {
+                NormalizedValue::FULL
+            };
+            let outcome = client
+                .submit(command(
+                    10_000 + index,
+                    Command::SetFixtureParameter {
+                        fixture_id: FixtureId::new(10),
+                        parameter_id: ParameterId::from("intensity"),
+                        value,
+                    },
+                    PriorityLane::Live,
+                ))
+                .unwrap();
+            assert!(outcome.result.is_ok());
+        }
+
+        wait_for_slot(&virtual_node, 255);
+        assert!(virtual_node.snapshot().send_count > frames_before);
+        assert_eq!(
+            client.snapshot().show.resolved_values[&FixtureId::new(10)]
+                [&ParameterId::from("intensity")],
+            NormalizedValue::FULL
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
     fn safety_blackout_uses_the_prioritized_command_lane() {
         let (adapter, virtual_node) = VirtualDmxOutput::new();
         let runtime =

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { DragEvent, ReactNode } from "react";
 
 import { useShowStore } from "../store/showStore";
 
@@ -20,10 +20,18 @@ export function PresetPalette() {
   const toggleEffect = useShowStore((state) => state.toggleEffect);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setCollapsed((current) => ({ ...current, [key]: !current[key] }));
+  const beginLiveDrag = (
+    event: DragEvent<HTMLButtonElement>,
+    payload: { label: string; sceneId: string | null; effectId: string | null },
+  ) => {
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-lighthouse-live-control", JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", payload.label);
+  };
 
   return (
     <aside className="preset-palette">
-      <header><strong>PRESET PALETTE</strong><button title="Preset options">•••</button></header>
+      <header><strong>PRESET PALETTE</strong><span title="Scenes and effects can be dragged to the Live panel">DRAG → LIVE</span></header>
       <PaletteGroup label="Colors" collapsed={Boolean(collapsed.colors)} onToggle={() => toggle("colors")}>
         {quickColors.map(([name, color]) => <button className="palette-row" key={name} onClick={() => { capture(); updateSelected({ color }); }}><i style={{ background: color }} /><span>{name}</span><b>☆</b></button>)}
       </PaletteGroup>
@@ -33,10 +41,10 @@ export function PresetPalette() {
         <button className="palette-row" onClick={() => { capture(); updateSelected({ pan: 0.8, tilt: 0.5 }); }}><i>◌</i><span>Stage Right</span><b>☆</b></button>
       </PaletteGroup>
       <PaletteGroup label="Scenes" collapsed={Boolean(collapsed.scenes)} onToggle={() => toggle("scenes")}>
-        {scenes.map((scene) => <button className={`palette-row ${scene.active ? "is-active" : ""}`} key={scene.id} onClick={() => activateScene(scene.id)}><i style={{ background: scene.color }}>◼</i><span>{scene.name}</span><b>{scene.active ? "●" : "○"}</b></button>)}
+        {scenes.map((scene) => <button className={`palette-row ${scene.active ? "is-active" : ""}`} draggable key={scene.id} onDragStart={(event) => beginLiveDrag(event, { label: scene.name, sceneId: scene.id, effectId: null })} onClick={() => activateScene(scene.id)}><i style={{ background: scene.color }}>◼</i><span>{scene.name}</span><b>{scene.active ? "●" : "○"}</b></button>)}
       </PaletteGroup>
       <PaletteGroup label="Effects" collapsed={Boolean(collapsed.effects)} onToggle={() => toggle("effects")}>
-        {effects.map((effect) => <button className={`palette-row ${effect.active ? "is-active" : ""}`} key={effect.id} onClick={() => toggleEffect(effect.id)}><i>∿</i><span>{effect.name}</span><b>{effect.active ? "●" : "○"}</b></button>)}
+        {effects.map((effect) => <button className={`palette-row ${effect.active ? "is-active" : ""}`} draggable key={effect.id} onDragStart={(event) => beginLiveDrag(event, { label: effect.name, sceneId: null, effectId: effect.id })} onClick={() => toggleEffect(effect.id)}><i>∿</i><span>{effect.name}</span><b>{effect.active ? "●" : "○"}</b></button>)}
         {effects.length === 0 && <p className="palette-empty">Create effects in Design mode.</p>}
       </PaletteGroup>
       {groups.length > 0 && <PaletteGroup label="Fixture Groups" collapsed={Boolean(collapsed.groups)} onToggle={() => toggle("groups")}>

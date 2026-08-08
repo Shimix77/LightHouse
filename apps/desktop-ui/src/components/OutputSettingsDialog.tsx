@@ -58,11 +58,13 @@ export function OutputSettingsDialog({ onClose }: OutputSettingsDialogProps) {
     setError(undefined);
     if (!await putProjectSettings(settingsDraft)) {
       setSaving(false);
+      setError(useShowStore.getState().engineError ?? "Could not save engine safety settings. The current output remains unchanged.");
       return;
     }
     for (const universe of drafts) {
       if (!await putUniverseOutput(universe)) {
         setSaving(false);
+        setError(useShowStore.getState().engineError ?? `Could not save output settings for Universe ${universe.id}. The current output remains unchanged.`);
         return;
       }
     }

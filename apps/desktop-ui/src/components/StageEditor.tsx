@@ -28,6 +28,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
+  const gridRef = useRef<Graphics | null>(null);
   const fixtureLayerRef = useRef<Container | null>(null);
   const stageObjectLayerRef = useRef<Container | null>(null);
   const beamLayerRef = useRef<Container | null>(null);
@@ -38,12 +39,15 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
   const rectangleRef = useRef<RectangleState | null>(null);
   const panRef = useRef<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
   const spacePressedRef = useRef(false);
+  const stageToolRef = useRef<"select" | "pan" | "rectangle">("select");
   const lastFixturePointerRef = useRef<{ id: string; at: number } | null>(null);
   const [ready, setReady] = useState(false);
   const [zoom, setZoom] = useState(1);
 
   const fixtures = useShowStore((state) => state.fixtures);
   const stageView = useShowStore((state) => state.stageView);
+  const stageTool = useShowStore((state) => state.stageTool);
+  const gridEnabled = useShowStore((state) => state.gridEnabled);
   const stageObjects = useShowStore((state) => state.stageObjects);
   const selectedIds = useShowStore((state) => state.selectedFixtureIds);
   const selectedStageObjectIds = useShowStore((state) => state.selectedStageObjectIds);
@@ -59,6 +63,15 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
     () => new Set(selectedStageObjectIds),
     [selectedStageObjectIds],
   );
+
+  useEffect(() => {
+    stageToolRef.current = stageTool;
+    hostRef.current?.classList.toggle("is-panning", stageTool === "pan");
+  }, [stageTool]);
+
+  useEffect(() => {
+    if (gridRef.current) gridRef.current.visible = gridEnabled;
+  }, [gridEnabled, ready]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -86,6 +99,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
         app.canvas.className = "stage-canvas";
         const world = new Container();
         const grid = createGrid();
+        grid.visible = gridEnabled;
         const stageObjectLayer = new Container();
         const beamLayer = new Container();
         const fixtureLayer = new Container();
@@ -99,6 +113,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
 
         appRef.current = app;
         worldRef.current = world;
+        gridRef.current = grid;
         fixtureLayerRef.current = fixtureLayer;
         stageObjectLayerRef.current = stageObjectLayer;
         beamLayerRef.current = beamLayer;
@@ -130,6 +145,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       window.removeEventListener("keyup", onKeyUp);
       appRef.current = null;
       worldRef.current = null;
+      gridRef.current = null;
       fixtureLayerRef.current = null;
       stageObjectLayerRef.current = null;
       beamLayerRef.current = null;
@@ -142,7 +158,8 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
 
     function bindStageGestures(stageApp: Application, world: Container): () => void {
       const onPointerDown = (event: FederatedPointerEvent) => {
-        const isPan = event.button === 1 || spacePressedRef.current;
+        const tool = stageToolRef.current;
+        const isPan = tool === "pan" || event.button === 1 || spacePressedRef.current;
         if (isPan) {
           panRef.current = {
             x: event.global.x,
@@ -153,8 +170,10 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
           host.classList.add("is-panning");
           return;
         }
-        const point = world.toLocal(event.global);
-        rectangleRef.current = { startX: point.x, startY: point.y };
+        if (tool === "rectangle") {
+          const point = world.toLocal(event.global);
+          rectangleRef.current = { startX: point.x, startY: point.y };
+        }
         if (!event.shiftKey) selectFixtures([]);
       };
       stageApp.stage.on("pointerdown", onPointerDown);
@@ -197,7 +216,9 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       const finishPointer = (event: FederatedPointerEvent) => {
         if (panRef.current) {
           panRef.current = null;
-          if (!spacePressedRef.current) host.classList.remove("is-panning");
+          if (!spacePressedRef.current && stageToolRef.current !== "pan") {
+            host.classList.remove("is-panning");
+          }
           return;
         }
         const point = world.toLocal(event.global);
@@ -294,6 +315,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       container.eventMode = stageObject.locked ? "none" : "static";
       container.cursor = stageObject.locked ? "not-allowed" : "move";
       container.on("pointerdown", (event: FederatedPointerEvent) => {
+        if (stageToolRef.current !== "select") return;
         event.stopPropagation();
         const additive = event.shiftKey;
         const currentSelection = useShowStore.getState().selectedStageObjectIds;
@@ -345,6 +367,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       container.eventMode = fixtureItem.locked ? "none" : "static";
       container.cursor = fixtureItem.locked ? "not-allowed" : "move";
       container.on("pointerdown", (event: FederatedPointerEvent) => {
+        if (stageToolRef.current !== "select") return;
         event.stopPropagation();
         const now = performance.now();
         const previous = lastFixturePointerRef.current;
@@ -401,7 +424,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
         <span>{fixtures.length + stageObjects.length} objects</span>
       </div>
       <div ref={hostRef} className="stage-surface" style={backgroundStyle} />
-      <div className="stage-hint">Space + drag to pan · Wheel to zoom · Shift for multi-select</div>
+      <div className="stage-hint">{stageTool === "pan" ? "Drag to pan" : stageTool === "rectangle" ? "Drag a rectangle to select" : "Drag fixtures to move"} · Wheel to zoom · Shift for multi-select</div>
     </section>
   );
 }

@@ -2152,10 +2152,13 @@ fn apply_project_command(
                 .ok_or_else(|| {
                     BackendError::InvalidCommand(format!("universe {universe} does not exist"))
                 })?;
+            let was_enabled = record.enabled;
             record.name = non_empty_name(name, &format!("Universe {universe}"));
             record.enabled = enabled && protocol != "none";
             record.routes = route;
-            Ok(true)
+            // A disabled route is project configuration only. Restarting the independent
+            // engine here adds latency to Project Setup without changing physical output.
+            Ok(was_enabled || record.enabled)
         }
         UiProjectCommand::PutProjectSettings {
             dmx_refresh_hz,
@@ -3228,13 +3231,8 @@ fn empty_project(name: String) -> ProjectBundle {
     bundle.project.universes.push(UniverseRecord {
         id: UniverseId::new(1),
         name: "Universe 1".into(),
-        enabled: true,
-        routes: vec![OutputRouteRecord::ArtNet {
-            port_address: 0,
-            destination: "127.0.0.1:6454".into(),
-            interface: None,
-            broadcast: false,
-        }],
+        enabled: false,
+        routes: Vec::new(),
     });
     bundle
 }
@@ -3511,6 +3509,39 @@ mod tests {
 
         assert!(restart);
         assert!(!bundle.project.universes[0].enabled);
+        assert_eq!(
+            bundle.project.universes[0].routes,
+            vec![OutputRouteRecord::UsbDmx {
+                device_path: "/dev/cu.usbserial-AB0KT9HX".into(),
+            }]
+        );
+        assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn fresh_project_saves_disabled_usb_route_without_restarting_output() {
+        let mut bundle = empty_project("Fresh Show".into());
+        assert!(!bundle.project.universes[0].enabled);
+        assert!(bundle.project.universes[0].routes.is_empty());
+
+        let restart = apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutUniverseOutput {
+                universe: 1,
+                name: "Universe 1".into(),
+                enabled: false,
+                protocol: "usbDmx".into(),
+                port_address: 0,
+                destination: "127.0.0.1:6454".into(),
+                interface: None,
+                broadcast: false,
+                device_path: Some("/dev/cu.usbserial-AB0KT9HX".into()),
+            },
+            None,
+        )
+        .unwrap();
+
+        assert!(!restart);
         assert_eq!(
             bundle.project.universes[0].routes,
             vec![OutputRouteRecord::UsbDmx {
@@ -3836,6 +3867,31 @@ mod tests {
             bundle.project.live_controls.last().unwrap().effect_id,
             Some(effect_id)
         );
+        let control_id = bundle.project.live_controls.last().unwrap().id;
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::UpdateLiveControlLayout {
+                control_id: control_id.to_string(),
+                grid_x: 4,
+                grid_y: 3,
+                width: 5,
+                height: 3,
+                color: "#18cbe8".into(),
+                behavior: "flash".into(),
+            },
+            None,
+        )
+        .unwrap();
+        let resized = bundle
+            .project
+            .live_controls
+            .iter()
+            .find(|control| control.id == control_id)
+            .unwrap();
+        assert_eq!((resized.grid_x, resized.grid_y), (Some(4), Some(3)));
+        assert_eq!((resized.width, resized.height), (Some(5), Some(3)));
+        assert_eq!(resized.color.as_deref(), Some("#18cbe8"));
+        assert_eq!(resized.behavior.as_deref(), Some("flash"));
         assert!(bundle.validate().is_ok());
     }
 
@@ -4000,6 +4056,28 @@ mod tests {
                 .fixture_definitions
                 .iter()
                 .any(|definition| definition.id == "ofl.chauvet-dj.slimpar-pro-h-usb")
+        );
+
+        // Regression for Project Setup: changing an older, active Art-Net project to a
+        // detected USB cable must complete even though physical output remains disabled.
+        let usb_output = backend
+            .project_command(UiProjectCommand::PutUniverseOutput {
+                universe: 1,
+                name: "DOREMiDi USB-DMX".into(),
+                enabled: false,
+                protocol: "usbDmx".into(),
+                port_address: 0,
+                destination: "127.0.0.1:6454".into(),
+                interface: None,
+                broadcast: false,
+                device_path: Some("/dev/cu.usbserial-AB0KT9HX".into()),
+            })
+            .unwrap();
+        assert_eq!(usb_output.project.universes[0].protocol, "usbDmx");
+        assert!(!usb_output.project.universes[0].enabled);
+        assert_eq!(
+            usb_output.project.universes[0].device_path.as_deref(),
+            Some("/dev/cu.usbserial-AB0KT9HX")
         );
 
         let fresh = backend

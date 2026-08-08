@@ -85,7 +85,7 @@ export function App() {
 
   if (liveDisplay) return <LiveDisplay />;
 
-  if (screen === "projects") return <ProjectBrowser onOpenWorkspace={() => setScreen("workspace")} onStartSetup={() => setScreen("setup")} />;
+  if (screen === "projects") return <ProjectBrowser onOpenWorkspace={() => setScreen("workspace")} onStartSetup={() => setScreen("setup")} onOpenFixtureLibrary={() => setScreen("fixtures")} />;
   if (screen === "setup") return <ProjectSetup onDone={() => setScreen("workspace")} onCancel={() => setScreen("projects")} />;
   if (screen === "fixtures") return <FixtureManager onDone={() => setScreen("workspace")} />;
 

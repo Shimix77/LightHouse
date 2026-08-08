@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, DragEvent, PointerEvent as ReactPointerEvent } from "react";
 
 import { useShowStore } from "../store/showStore";
 import type { LiveControlSummary } from "../types/show";
@@ -16,7 +16,9 @@ export function LivePanel() {
   const remove = useShowStore((state) => state.deleteLiveControl);
   const setPage = useShowStore((state) => state.setLivePage);
   const persistLayout = useShowStore((state) => state.updateLiveControlLayout);
+  const addLiveControl = useShowStore((state) => state.addLiveControl);
   const [editing, setEditing] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [drafts, setDrafts] = useState<Record<string, Layout>>({});
   const pageControls = controls.filter((control) => control.page === livePage);
@@ -92,11 +94,33 @@ export function LivePanel() {
     void commit(control, next);
   };
 
+  const acceptLiveDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    const encoded = event.dataTransfer.getData("application/x-lighthouse-live-control");
+    if (!encoded) return;
+    try {
+      const payload = JSON.parse(encoded) as { label?: string; sceneId?: string | null; effectId?: string | null };
+      const sceneExists = payload.sceneId ? scenes.some((scene) => scene.id === payload.sceneId) : false;
+      const effectExists = payload.effectId ? effects.some((effect) => effect.id === payload.effectId) : false;
+      if (!payload.label || (!sceneExists && !effectExists)) return;
+      addLiveControl(payload.label, sceneExists ? payload.sceneId! : null, effectExists ? payload.effectId! : null);
+    } catch {
+      // Ignore data dragged from outside LightHouse.
+    }
+  };
+
   return (
     <section className="live-control-panel">
       <header className="live-layout-header"><div><strong>LIVE PAGE {livePage}</strong><button disabled={livePage <= 1} onClick={() => setPage(livePage - 1)}>‹</button><button disabled={livePage >= maxPage} onClick={() => setPage(livePage + 1)}>›</button></div><div className="live-edit-controls"><button className={editing ? "is-active" : ""} onClick={() => setEditing(true)}>✎ Edit</button><button className={!editing ? "is-active" : ""} onClick={() => { setEditing(false); setSelectedId(undefined); }}>Done</button><span title={editing ? "Layout unlocked" : "Layout locked"}>{editing ? "⌗" : "🔒"}</span></div></header>
       {editing && selectedId && <div className="live-selection-toolbar"><label><span>Button color</span><input type="color" value={layoutOf(pageControls.find((entry) => entry.id === selectedId)!).color} onChange={(event) => updateSelected({ color: event.target.value })} /></label><label><span>Behavior</span><select value={layoutOf(pageControls.find((entry) => entry.id === selectedId)!).behavior} onChange={(event) => updateSelected({ behavior: event.target.value as Layout["behavior"] })}><option value="toggle">Toggle</option><option value="flash">Flash</option><option value="push">Push</option><option value="radio">Radio</option></select></label><span>Drag the button or any resize handle.</span></div>}
-      <div className={`live-layout-grid ${editing ? "is-editing" : ""}`}>
+      <div
+        className={`live-layout-grid ${editing ? "is-editing" : ""} ${dragOver ? "is-drag-over" : ""}`}
+        onDragEnter={(event) => { if (event.dataTransfer.types.includes("application/x-lighthouse-live-control")) setDragOver(true); }}
+        onDragOver={(event) => { if (event.dataTransfer.types.includes("application/x-lighthouse-live-control")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false); }}
+        onDrop={acceptLiveDrop}
+      >
         {pageControls.map((control) => {
           const active = (control.sceneId ? activeScenes.has(control.sceneId) : false) || (control.effectId ? activeEffects.has(control.effectId) : false);
           const layout = layoutOf(control);
@@ -139,7 +163,7 @@ export function LivePanel() {
             {editing && <><button className="live-remove" aria-label={`Remove ${control.label}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => remove(control.id)}>×</button>{(["n", "ne", "e", "se", "s", "sw", "w", "nw"] as ResizeDirection[]).map((direction) => <i className={`resize-handle handle-${direction}`} key={direction} onPointerDown={(event) => beginGesture(event, control, direction)} />)}{selected && <output className="live-size-readout">{layout.width} × {layout.height}</output>}</>}
           </article>;
         })}
-        {pageControls.length === 0 && <div className="empty-live-grid"><span>＋</span><strong>Add scenes or effects</strong><small>Use “+ LIVE” in Design mode.</small></div>}
+        {pageControls.length === 0 && <div className="empty-live-grid"><span>＋</span><strong>Drop scenes or effects here</strong><small>Drag from the Preset Palette, or use “+ LIVE”.</small></div>}
       </div>
     </section>
   );

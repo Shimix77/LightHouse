@@ -7,43 +7,43 @@ interface UserGuideDialogProps {
 const steps = [
   {
     number: "1",
-    title: "Vytvorte projekt",
-    body: <>Kliknite na názov projektu vľavo hore a zvoľte <b>New Project</b>. Projekt sa priebežne ukladá automaticky.</>,
+    title: "Create a project",
+    body: <>Choose <b>New Project</b> on the start screen. LightHouse saves project changes automatically.</>,
   },
   {
     number: "2",
-    title: "Nastavte Art-Net",
-    body: <>Kliknite hore na <b>Art-Net</b>. Zadajte IP adresu DMX uzla a port <b>6454</b>, zapnite <b>Output enabled</b> a potvrďte cez <b>Apply &amp; restart output</b>.</>,
+    title: "Choose a DMX output",
+    body: <>Select <b>USB-DMX</b>, <b>Art-Net</b>, or <b>No DMX Output</b> in Project Setup. Physical output stays disabled until you explicitly enable it.</>,
   },
   {
     number: "3",
-    title: "Pridajte a patchnite svetlá",
-    body: <>V režime <b>EDIT</b> otvorte vľavo <b>Fixtures</b> a stlačte <b>+</b>. Vyberte presný model a DMX režim. <b>Add &amp; Auto-patch</b> nájde voľnú adresu automaticky.</>,
+    title: "Add and patch fixtures",
+    body: <>In <b>EDIT</b> mode open the Fixture Library, choose the exact model and DMX mode, then use <b>Find Free</b> and <b>Patch</b> to assign the next available address.</>,
   },
   {
     number: "4",
-    title: "Rozmiestnite ich na pôdoryse",
-    body: <>Svetlá presúvajte myšou v strede plochy. Voliteľný PNG/JPG pôdorys pridáte cez <b>Add Floor Plan</b>. Viac svetiel vyberiete so <b>Shift</b>.</>,
+    title: "Build the stage layout",
+    body: <>Move fixtures on the central Stage Editor. Add an optional PNG/JPG floor plan with <b>Add Floor Plan</b>. Hold <b>Shift</b> to select multiple fixtures.</>,
   },
   {
     number: "5",
-    title: "Nastavte svetelný obraz",
-    body: <>Vyberte svetlo a v pravom paneli nastavte <b>Intensity, Color, Pan, Tilt</b> alebo <b>Zoom</b>. Fyzické svetlo musí mať rovnaký DMX režim a adresu ako v LightHouse.</>,
+    title: "Create a lighting look",
+    body: <>Select a fixture and use the inspector to set <b>Intensity, Color, Pan, Tilt</b>, or <b>Zoom</b>. The physical fixture must use the same mode and address.</>,
   },
   {
     number: "6",
-    title: "Uložte scénu",
-    body: <>Dole otvorte <b>Scenes</b> a kliknite <b>Capture Scene</b>. Ak sú vybrané svetlá, uloží sa čiastočná scéna iba pre ne; bez výberu sa uložia všetky.</>,
+    title: "Capture a scene",
+    body: <>Open <b>Scenes</b> and choose <b>Capture Scene</b>. With fixtures selected, LightHouse captures a partial scene; with no selection, it captures all fixtures.</>,
   },
   {
     number: "7",
-    title: "Pripravte prehrávanie",
-    body: <>Pri scéne použite <b>+ Cue</b> pre poradie v Cue Liste alebo <b>+ Live</b> pre veľké spúšťacie tlačidlo. Efekty vytvoríte v karte <b>Effects</b>.</>,
+    title: "Prepare playback",
+    body: <>Use <b>+ CUE</b> to add a scene to the Cue List or <b>+ LIVE</b> for a large trigger button. You can also drag scenes and effects from the Preset Palette to the Live panel.</>,
   },
   {
     number: "8",
-    title: "Spustite show",
-    body: <>Prepnite hore na <b>LIVE</b>. Scény spúšťajte z Live Panelu alebo tlačidlom <b>GO</b>. <b>BLACKOUT</b> okamžite zhasne intenzitu všetkých svetiel.</>,
+    title: "Run the show",
+    body: <>Switch to <b>LIVE</b>. Trigger scenes from the Live panel or use <b>GO</b> for the Cue List. <b>BLACKOUT</b> immediately forces every fixture intensity to zero.</>,
   },
 ];
 
@@ -58,14 +58,14 @@ export function UserGuideDialog({ onClose }: UserGuideDialogProps) {
 
   return (
     <div className="fixture-dialog-backdrop guide-dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="fixture-dialog guide-dialog" role="dialog" aria-modal="true" aria-label="Návod – prvá svetelná show" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="fixture-dialog guide-dialog" role="dialog" aria-modal="true" aria-label="User Guide – first lighting show" onMouseDown={(event) => event.stopPropagation()}>
         <header>
-          <div><small>PRVÉ KROKY</small><h2>Prvá svetelná show</h2></div>
-          <button type="button" aria-label="Zavrieť návod" onClick={onClose}>×</button>
+          <div><small>GETTING STARTED</small><h2>Your first lighting show</h2></div>
+          <button type="button" aria-label="Close User Guide" onClick={onClose}>×</button>
         </header>
 
         <div className="guide-intro">
-          Tento postup vás prevedie od prázdneho projektu až po spustenie prvej scény. Nastavenia, patch aj scény môžete pripraviť bez pripojených svetiel.
+          Follow these steps from an empty project to your first live scene. You can prepare output settings, patching, and scenes without connected fixtures.
         </div>
 
         <div className="guide-steps">
@@ -78,11 +78,11 @@ export function UserGuideDialog({ onClose }: UserGuideDialogProps) {
         </div>
 
         <div className="guide-safety">
-          <strong>Pred prvým výstupom</strong>
-          <span>Začnite s GRAND MASTER na 0 %, skontrolujte adresy a až potom pomaly pridávajte intenzitu. Červený BLACKOUT je dostupný stále.</span>
+          <strong>Before enabling physical output</strong>
+          <span>Start with GRAND MASTER at 0%, verify fixture modes and addresses, then raise intensity slowly. The red BLACKOUT control is always available.</span>
         </div>
 
-        <footer><span /><button className="primary" type="button" onClick={onClose}>Rozumiem, začať</button></footer>
+        <footer><span /><button className="primary" type="button" onClick={onClose}>Got it, start</button></footer>
       </section>
     </div>
   );

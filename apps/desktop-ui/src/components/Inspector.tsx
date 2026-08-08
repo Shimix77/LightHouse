@@ -52,7 +52,7 @@ export function Inspector() {
         <div className="inspector-heading">
           <div className="large-fixture-icon stage-object-large-icon">◇</div>
           <div><small>{primaryStageObject.kind.toUpperCase()}</small><h2>{selectedStageObjects.length > 1 ? `${selectedStageObjects.length} Stage Objects` : primaryStageObject.name}</h2></div>
-          <button aria-label="Inspector options">•••</button>
+          <span aria-hidden="true" />
         </div>
         <InspectorSection title="Stage Layout" open>
           <label className="layout-text-field full-width"><span>Name</span><input key={`${primaryStageObject.id}-${primaryStageObject.name}`} defaultValue={primaryStageObject.name} onFocus={captureHistory} onBlur={(event) => updateSelectedStageObjects({ name: event.target.value })} /></label>
@@ -88,7 +88,7 @@ export function Inspector() {
       <div className="inspector-heading">
         <div className="large-fixture-icon" style={{ "--fixture-color": primary.color } as CSSProperties}>●</div>
         <div><small>{selected.length > 1 ? `${selected.length} FIXTURES` : "MOVING HEAD"}</small><h2>{selected.length > 1 ? "Multiple Selection" : primary.name}</h2></div>
-        <button aria-label="Inspector options">•••</button>
+        <span aria-hidden="true" />
       </div>
 
       <InspectorSection title="Intensity" open>
@@ -223,7 +223,7 @@ function LayoutNumber({
 function InspectorSection({ title, open, children }: { title: string; open?: boolean; children: ReactNode }) {
   return (
     <section className="inspector-section">
-      <header><span>{open ? "⌄" : "›"}</span><strong>{title}</strong><button aria-label={`${title} options`}>•••</button></header>
+      <header><span>{open ? "⌄" : "›"}</span><strong>{title}</strong><span aria-hidden="true" /></header>
       <div className="inspector-section-body">{children}</div>
     </section>
   );

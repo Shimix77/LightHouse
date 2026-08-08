@@ -39,6 +39,8 @@ interface ShowUiState {
   projectName: string;
   mode: OperationMode;
   stageView: StageView;
+  stageTool: "select" | "pan" | "rectangle";
+  gridEnabled: boolean;
   fixtures: LayoutFixture[];
   selectedFixtureIds: string[];
   stageObjects: StageObject[];
@@ -78,6 +80,8 @@ interface ShowUiState {
   clipboardStageObjectIds: string[];
   setMode: (mode: OperationMode) => void;
   setStageView: (view: StageView) => void;
+  setStageTool: (tool: "select" | "pan" | "rectangle") => void;
+  toggleGrid: () => void;
   selectFixtures: (ids: string[], additive?: boolean) => void;
   selectStageObjects: (ids: string[], additive?: boolean) => void;
   captureFixtureHistory: () => void;
@@ -176,9 +180,26 @@ const initialLiveControls: LiveControlSummary[] = initialScenes.map((scene, inde
 }));
 
 const initialFixtureDefinitions: FixtureDefinitionSummary[] = [
-  { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", source: "generic", modes: [{ id: "1ch", name: "1 Channel", footprint: 1, parameters: [] }] },
-  { id: "generic.rgbw-par", manufacturer: "LightHouse", model: "Generic RGBW PAR", source: "generic", modes: [{ id: "5ch", name: "Intensity + RGBW", footprint: 5, parameters: [] }] },
-  { id: "generic.moving-head-16bit", manufacturer: "LightHouse", model: "Generic 16-bit Moving Head", source: "generic", modes: [{ id: "10ch", name: "Pan/Tilt 16-bit + RGB + Beam", footprint: 10, parameters: [] }] },
+  { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", source: "generic", modes: [{ id: "1ch", name: "1 Channel", footprint: 1, parameters: [
+    { id: "intensity", name: "Intensity", capability: "intensity", defaultValue: 0, resolution: 8, coarseChannel: 1, fineChannel: null, invert: false },
+  ] }] },
+  { id: "generic.rgbw-par", manufacturer: "LightHouse", model: "Generic RGBW PAR", source: "generic", modes: [{ id: "5ch", name: "Intensity + RGBW", footprint: 5, parameters: [
+    { id: "intensity", name: "Intensity", capability: "intensity", defaultValue: 0, resolution: 8, coarseChannel: 1, fineChannel: null, invert: false },
+    { id: "color.red", name: "Red", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 2, fineChannel: null, invert: false },
+    { id: "color.green", name: "Green", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 3, fineChannel: null, invert: false },
+    { id: "color.blue", name: "Blue", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 4, fineChannel: null, invert: false },
+    { id: "color.white", name: "White", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 5, fineChannel: null, invert: false },
+  ] }] },
+  { id: "generic.moving-head-16bit", manufacturer: "LightHouse", model: "Generic 16-bit Moving Head", source: "generic", modes: [{ id: "10ch", name: "Pan/Tilt 16-bit + RGB + Beam", footprint: 10, parameters: [
+    { id: "position.pan", name: "Pan", capability: "position", defaultValue: 0.5, resolution: 16, coarseChannel: 1, fineChannel: 2, invert: false },
+    { id: "position.tilt", name: "Tilt", capability: "position", defaultValue: 0.5, resolution: 16, coarseChannel: 3, fineChannel: 4, invert: false },
+    { id: "intensity", name: "Intensity", capability: "intensity", defaultValue: 0, resolution: 8, coarseChannel: 5, fineChannel: null, invert: false },
+    { id: "color.red", name: "Red", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 6, fineChannel: null, invert: false },
+    { id: "color.green", name: "Green", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 7, fineChannel: null, invert: false },
+    { id: "color.blue", name: "Blue", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 8, fineChannel: null, invert: false },
+    { id: "beam.zoom", name: "Zoom", capability: "beam", defaultValue: 0.5, resolution: 8, coarseChannel: 9, fineChannel: null, invert: false },
+    { id: "shutter", name: "Shutter / Strobe", capability: "shutter", defaultValue: 0, resolution: 8, coarseChannel: 10, fineChannel: null, invert: false },
+  ] }] },
 ];
 
 export const useShowStore = create<ShowUiState>((set, get) => {
@@ -259,6 +280,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     projectName: "Main Stage — Demo",
     mode: "edit",
     stageView: readStageView(),
+    stageTool: "select",
+    gridEnabled: true,
     fixtures: initialFixtures,
     selectedFixtureIds: ["fx-5"],
     stageObjects: [],
@@ -304,6 +327,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       window.localStorage.setItem("lighthouse.stageView", stageView);
       set({ stageView });
     },
+    setStageTool: (stageTool) => set({ stageTool }),
+    toggleGrid: () => set((state) => ({ gridEnabled: !state.gridEnabled })),
     selectFixtures: (ids, additive = false) =>
       set((state) => ({
         selectedFixtureIds: additive

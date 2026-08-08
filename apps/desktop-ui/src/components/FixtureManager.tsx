@@ -10,12 +10,17 @@ interface FixtureManagerProps {
   embedded?: boolean;
 }
 
+type ProfileTab = "profile" | "patching" | "channels";
+type SourceFilter = "all" | "generic" | "ofl" | "custom";
+
 export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps) {
   const definitions = useShowStore((state) => state.fixtureDefinitions);
   const fixtures = useShowStore((state) => state.fixtures);
   const universes = useShowStore((state) => state.universes);
   const addUniverse = useShowStore((state) => state.addUniverse);
   const addFixturesAtPatch = useShowStore((state) => state.addFixturesAtPatch);
+  const openProject = useShowStore((state) => state.openProject);
+  const saveProjectAs = useShowStore((state) => state.saveProjectAs);
   const [query, setQuery] = useState("");
   const [manufacturer, setManufacturer] = useState("Generic");
   const [definitionId, setDefinitionId] = useState("");
@@ -27,13 +32,24 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
   const [customOpen, setCustomOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
+  const [profileTab, setProfileTab] = useState<ProfileTab>("profile");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(window.localStorage.getItem("lighthouse.fixtureFavorites") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
 
   const normalized = query.trim().toLowerCase();
-  const visibleDefinitions = useMemo(() => definitions.filter((definition) => (
-    !normalized
-    || `${definition.manufacturer} ${definition.model} ${definition.modes.map((mode) => `${mode.name} ${mode.footprint}`).join(" ")}`
-      .toLowerCase().includes(normalized)
-  )), [definitions, normalized]);
+  const visibleDefinitions = useMemo(() => definitions.filter((definition) => {
+    const matchesSource = sourceFilter === "all" || definition.source === sourceFilter;
+    const matchesQuery = !normalized
+      || `${definition.manufacturer} ${definition.model} ${definition.modes.map((mode) => `${mode.name} ${mode.footprint}`).join(" ")}`
+        .toLowerCase().includes(normalized);
+    return matchesSource && matchesQuery;
+  }), [definitions, normalized, sourceFilter]);
   const manufacturers = useMemo(() => {
     const values = [...new Set(visibleDefinitions.map((definition) => displayManufacturer(definition)))];
     return values.sort((left, right) => left.localeCompare(right));
@@ -47,7 +63,7 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
   }, [manufacturer, manufacturers]);
 
   const profiles = visibleDefinitions.filter((definition) => displayManufacturer(definition) === manufacturer);
-  const selectedDefinition = definitions.find((definition) => definition.id === definitionId)
+  const selectedDefinition = visibleDefinitions.find((definition) => definition.id === definitionId)
     ?? profiles[0]
     ?? visibleDefinitions[0];
   const selectedMode = selectedDefinition?.modes.find((mode) => mode.id === modeId)
@@ -104,18 +120,34 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
     setAddress(Math.min(512, previewEnd + 1));
   };
 
+  const toggleFavorite = () => {
+    if (!selectedDefinition) return;
+    setFavoriteIds((current) => {
+      const next = new Set(current);
+      if (next.has(selectedDefinition.id)) next.delete(selectedDefinition.id);
+      else next.add(selectedDefinition.id);
+      window.localStorage.setItem("lighthouse.fixtureFavorites", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const cycleSourceFilter = () => {
+    const values: SourceFilter[] = ["all", "generic", "ofl", "custom"];
+    setSourceFilter(values[(values.indexOf(sourceFilter) + 1) % values.length] ?? "all");
+  };
+
   return (
     <section className={`fixture-manager-screen ${embedded ? "is-embedded" : ""}`}>
-      {!embedded && <header className="fixture-manager-titlebar"><div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button>⇧</button><button>⇩</button><button>•••</button></div></header>}
+      {!embedded && <header className="fixture-manager-titlebar"><div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button title="Open another project" onClick={() => { void openProject(); }}>↗</button><button title="Save project copy" onClick={() => { void saveProjectAs(); }}>⇩</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>＋</button></div></header>}
       <div className="fixture-manager-body">
         <aside className="fixture-library-pane">
-          <div className="fixture-library-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fixture Library" /><button title="Favorites">☆</button><button title="Filters">▽</button><button>•••</button></div>
+          <div className="fixture-library-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fixture Library" /><button className={selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "is-active" : ""} title="Favorite selected profile" onClick={toggleFavorite}>{selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "★" : "☆"}</button><button className={sourceFilter !== "all" ? "is-active" : ""} title={`Source filter: ${sourceFilter}`} onClick={cycleSourceFilter}>▽</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>•••</button></div>
           <div className="fixture-library-columns">
             <div className="manufacturer-column"><header>Manufacturers</header>{manufacturers.map((name) => <button className={name === manufacturer ? "is-selected" : ""} key={name} onClick={() => setManufacturer(name)}>{name}</button>)}</div>
             <div className="profile-column"><header>Profiles ({manufacturer})</header>{profiles.map((definition) => <button draggable className={definition.id === selectedDefinition?.id ? "is-selected" : ""} key={definition.id} onDragStart={(event) => { event.dataTransfer.setData("application/x-lighthouse-fixture", definition.id); event.dataTransfer.effectAllowed = "copy"; }} onClick={() => selectProfile(definition)} onDoubleClick={() => selectProfile(definition)}><span>{fixtureGlyph(definition)}</span><span><strong>{definition.model}</strong><small>{definition.modes.map((mode) => `${mode.footprint}ch`).join(" · ")}</small></span></button>)}</div>
           </div>
           <button className="custom-profile-button" onClick={() => setCustomOpen(true)}>♙ <span><strong>Custom Profiles</strong><small>Create and categorize channels</small></span><b>›</b></button>
-          <footer><span>{definitions.length.toLocaleString()} profiles available</span><button title="Refresh library">↻</button></footer>
+          <footer><span>{visibleDefinitions.length.toLocaleString()} of {definitions.length.toLocaleString()} profiles · {sourceFilter}</span><button title="Reset library filters" onClick={() => { setQuery(""); setSourceFilter("all"); }}>↻</button></footer>
         </aside>
 
         <section className="patch-pane">
@@ -142,12 +174,10 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
           </div>
 
           <div className={`patch-popover ${hasConflict ? "has-conflict" : ""}`}>
-            <div className="patch-popover-tabs"><button className="is-active">Profile</button><button>Patching</button><button>Channels</button></div>
-            <div className="patch-profile-summary"><span>{fixtureGlyph(selectedDefinition)}</span><div><small>{selectedDefinition?.manufacturer ?? "Select a profile"}</small><strong>{selectedDefinition?.model ?? "No fixture selected"}</strong></div></div>
-            <label><span>Mode</span><select value={selectedMode?.id ?? ""} onChange={(event) => setModeId(event.target.value)}>{selectedDefinition?.modes.map((mode) => <option value={mode.id} key={mode.id}>{mode.name} ({mode.footprint} channels)</option>)}</select></label>
-            <label><span>Quantity</span><input type="number" min={1} max={128} value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(128, Number(event.target.value))))} /></label>
-            <label><span>Short name</span><input value={shortName} onChange={(event) => setShortName(event.target.value)} /></label>
-            <label><span>Start address</span><input type="number" min={1} max={512} value={address} onChange={(event) => setAddress(Number(event.target.value))} /></label>
+            <div className="patch-popover-tabs"><button className={profileTab === "profile" ? "is-active" : ""} onClick={() => setProfileTab("profile")}>Profile</button><button className={profileTab === "patching" ? "is-active" : ""} onClick={() => setProfileTab("patching")}>Patching</button><button className={profileTab === "channels" ? "is-active" : ""} onClick={() => setProfileTab("channels")}>Channels</button></div>
+            {profileTab === "profile" && <><div className="patch-profile-summary"><span>{fixtureGlyph(selectedDefinition)}</span><div><small>{selectedDefinition?.manufacturer ?? "Select a profile"}</small><strong>{selectedDefinition?.model ?? "No fixture selected"}</strong></div></div><label><span>Mode</span><select value={selectedMode?.id ?? ""} onChange={(event) => setModeId(event.target.value)}>{selectedDefinition?.modes.map((mode) => <option value={mode.id} key={mode.id}>{mode.name} ({mode.footprint} channels)</option>)}</select></label></>}
+            {profileTab === "patching" && <><label><span>Quantity</span><input type="number" min={1} max={128} value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(128, Number(event.target.value))))} /></label><label><span>Short name</span><input value={shortName} onChange={(event) => setShortName(event.target.value)} /></label><label><span>Start address</span><input type="number" min={1} max={512} value={address} onChange={(event) => setAddress(Number(event.target.value))} /></label></>}
+            {profileTab === "channels" && <div className="patch-channel-list">{selectedMode?.parameters.map((parameter) => <span key={parameter.id}><b>CH {parameter.coarseChannel}</b><strong>{parameter.name}</strong><small>{parameter.resolution}-bit</small></span>)}{!selectedMode?.parameters.length && <p>No channel metadata for this mode.</p>}</div>}
             <div className="patch-preview-copy"><span>U{universe} · {address}–{Math.min(512, previewEnd)}</span><small>{footprint * quantity} channels</small></div>
             {hasConflict && <p>Address conflict — choose a free range.</p>}
             {error && <p>{error}</p>}

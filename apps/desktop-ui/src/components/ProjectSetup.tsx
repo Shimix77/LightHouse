@@ -19,6 +19,8 @@ export function ProjectSetup({ onDone, onCancel }: ProjectSetupProps) {
   const [devices, setDevices] = useState<UsbDmxDevice[]>([]);
   const [devicePath, setDevicePath] = useState("");
   const [deviceLoading, setDeviceLoading] = useState(true);
+  const [outputSaving, setOutputSaving] = useState(false);
+  const [outputError, setOutputError] = useState<string>();
   const [groupName, setGroupName] = useState("Front Wash");
   const fileInput = useRef<HTMLInputElement>(null);
   const projectName = useShowStore((state) => state.projectName);
@@ -49,19 +51,34 @@ export function ProjectSetup({ onDone, onCancel }: ProjectSetupProps) {
   }, []);
 
   const finishOutputStep = async () => {
-    window.localStorage.setItem(`lighthouse.output.${projectPath || "preview"}`, JSON.stringify({
-      kind: outputKind,
-      devicePath: outputKind === "usb" ? devicePath : null,
-    }));
+    if (outputSaving) return;
+    setOutputSaving(true);
+    setOutputError(undefined);
     const current = universes[0];
-    if (!current) return;
-    const saved = await putUniverseOutput({
-      ...current,
-      enabled: outputKind === "artnet",
-      protocol: outputKind === "usb" ? "usbDmx" : outputKind === "artnet" ? "artNet" : "none",
-      devicePath: outputKind === "usb" ? devicePath : null,
-    });
-    if (saved || !hasNativeEngine()) setStep(1);
+    if (!current) {
+      setOutputError("Universe 1 is unavailable. Reopen the project and try again.");
+      setOutputSaving(false);
+      return;
+    }
+    try {
+      const saved = await putUniverseOutput({
+        ...current,
+        enabled: outputKind === "artnet",
+        protocol: outputKind === "usb" ? "usbDmx" : outputKind === "artnet" ? "artNet" : "none",
+        devicePath: outputKind === "usb" ? devicePath : null,
+      });
+      if (saved || !hasNativeEngine()) {
+        window.localStorage.setItem(`lighthouse.output.${projectPath || "preview"}`, JSON.stringify({
+          kind: outputKind,
+          devicePath: outputKind === "usb" ? devicePath : null,
+        }));
+        setStep(1);
+      } else {
+        setOutputError(useShowStore.getState().engineError || "The output setting could not be saved.");
+      }
+    } finally {
+      setOutputSaving(false);
+    }
   };
 
   if (step === 1) {
@@ -84,6 +101,7 @@ export function ProjectSetup({ onDone, onCancel }: ProjectSetupProps) {
             </div>
             {outputKind === "usb" && <div className="usb-device-picker"><div><span className={`status-dot ${devices.length > 0 ? "is-good" : "is-error"}`} /><div><strong>{deviceLoading ? "Looking for USB-DMX interfaces…" : devices.length > 0 ? "DOREMiDi-compatible FTDI interface detected" : "No USB serial interface detected"}</strong><small>Read-only discovery · no DMX data has been sent</small></div></div><label><span>Device</span><select value={devicePath} onChange={(event) => setDevicePath(event.target.value)}>{devices.length === 0 ? <option value="">Connect the cable and try again</option> : devices.map((device) => <option value={device.path} key={device.path}>{device.name} — {device.path}</option>)}</select></label><p className="usb-setup-safety">The cable will be saved to this project with output disabled. Enable it later in Output Settings; LightHouse will warn you immediately before physical DMX starts.</p><button onClick={() => { setDeviceLoading(true); void listUsbDmxDevices().then((entries) => { setDevices(entries); setDevicePath(entries[0]?.path ?? ""); }).finally(() => setDeviceLoading(false)); }}>↻ Detect Again</button></div>}
             {outputKind === "artnet" && <div className="artnet-summary"><span>Universe 1</span><strong>{universes[0]?.destination ?? "127.0.0.1:6454"}</strong><small>Detailed network settings remain available after setup.</small></div>}
+            {outputError && <p className="setup-inline-error" role="alert"><strong>Could not continue.</strong> {outputError}</p>}
           </div>
         )}
 
@@ -110,7 +128,7 @@ export function ProjectSetup({ onDone, onCancel }: ProjectSetupProps) {
         )}
       </section>
 
-      <footer className="setup-footer"><button disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))}>Back</button><span>All project changes are saved automatically.</span>{step === 0 ? <button className="primary" disabled={outputKind === "usb" && !devicePath} onClick={() => { void finishOutputStep(); }}>Continue</button> : step < 4 ? <button className="primary" onClick={() => setStep((current) => current + 1)}>Continue</button> : <button className="primary" onClick={onDone}>Open Design Workspace</button>}</footer>
+      <footer className="setup-footer"><button disabled={step === 0 || outputSaving} onClick={() => setStep((current) => Math.max(0, current - 1))}>Back</button><span>{outputSaving ? "Saving output configuration…" : "All project changes are saved automatically."}</span>{step === 0 ? <button className="primary" disabled={outputSaving || (outputKind === "usb" && !devicePath)} onClick={() => { void finishOutputStep(); }}>{outputSaving ? "Saving…" : "Continue"}</button> : step < 4 ? <button className="primary" onClick={() => setStep((current) => current + 1)}>Continue</button> : <button className="primary" onClick={onDone}>Open Design Workspace</button>}</footer>
     </main>
   );
 }
