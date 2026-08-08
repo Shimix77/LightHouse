@@ -16,6 +16,7 @@ import type {
   FixtureSnapshot,
   GroupSummary,
   LayoutFixture,
+  LiveControlSummary,
   OperationMode,
   ProjectCommand,
   SceneSummary,
@@ -40,6 +41,8 @@ interface ShowUiState {
   bpm: number;
   cueLists: CueListSummary[];
   effects: EffectSummary[];
+  liveControls: LiveControlSummary[];
+  livePage: number;
   fixtureDefinitions: FixtureDefinitionSummary[];
   universeCount: number;
   projectPath: string;
@@ -91,6 +94,15 @@ interface ShowUiState {
   deleteScene: (sceneId: string) => void;
   addCue: (sceneId: string) => void;
   deleteCue: (cueListId: string, index: number) => void;
+  toggleEffect: (effectId: string) => void;
+  applyFan: (parameterId: string, base: number, spread: number) => void;
+  applyColorFan: (startColor: string, endColor: string) => void;
+  saveEffect: (effect: Omit<EffectSummary, "id" | "active"> & { id: string | null }) => void;
+  deleteEffect: (effectId: string) => void;
+  addLiveControl: (label: string, sceneId: string | null, effectId: string | null) => void;
+  deleteLiveControl: (controlId: string) => void;
+  triggerLiveControl: (controlId: string) => void;
+  setLivePage: (page: number) => void;
   hydrateEngine: (bootstrap: EngineBootstrap) => void;
   applyEngineView: (view: EngineView) => void;
   setEngineError: (message: string) => void;
@@ -189,6 +201,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     scenes: initialScenes,
     cueLists: [],
     effects: [],
+    liveControls: [],
+    livePage: 1,
     fixtureDefinitions: initialFixtureDefinitions,
     universeCount: 1,
     projectPath: "",
@@ -528,6 +542,88 @@ export const useShowStore = create<ShowUiState>((set, get) => {
     deleteCue: (cueListId, index) => {
       void mutateProject({ type: "deleteCue", data: { cueListId, index } });
     },
+    toggleEffect: (effectId) => {
+      const effect = get().effects.find((entry) => entry.id === effectId);
+      if (!effect) return;
+      dispatch(effect.active
+        ? { type: "stopEffect", data: { effectId } }
+        : {
+            type: "startEffect",
+            data: { effectId, fixtureIds: get().selectedFixtureIds },
+          });
+    },
+    applyFan: (parameterId, base, spread) => {
+      const fixtureIds = get().selectedFixtureIds;
+      if (fixtureIds.length === 0) {
+        set({ engineError: "Select at least two fixtures for fanning." });
+        return;
+      }
+      dispatch({ type: "applyFan", data: { fixtureIds, parameterId, base, spread } });
+    },
+    applyColorFan: (startColor, endColor) => {
+      const fixtureIds = get().selectedFixtureIds;
+      if (fixtureIds.length === 0) {
+        set({ engineError: "Select at least two fixtures for color fanning." });
+        return;
+      }
+      dispatch({
+        type: "applyColorFan",
+        data: {
+          fixtureIds,
+          startRgb: hexChannels(startColor),
+          endRgb: hexChannels(endColor),
+        },
+      });
+    },
+    saveEffect: (effect) => {
+      void mutateProject({
+        type: "putEffect",
+        data: {
+          effectId: effect.id,
+          name: effect.name,
+          template: effect.template,
+          targetParameter: effect.targetParameter,
+          amplitude: effect.amplitude,
+          offset: effect.offset,
+          speedHz: effect.speedHz,
+          beatMultiplier: effect.beatMultiplier,
+          beatSync: effect.beatSync,
+          spatialPhase: effect.spatialPhase,
+          direction: effect.direction,
+          blend: effect.blend,
+          order: effect.order,
+        },
+      });
+    },
+    deleteEffect: (effectId) => {
+      void mutateProject({ type: "deleteEffect", data: { effectId } });
+    },
+    addLiveControl: (label, sceneId, effectId) => {
+      const page = get().livePage;
+      const position = get().liveControls
+        .filter((control) => control.page === page)
+        .reduce((highest, control) => Math.max(highest, control.position + 1), 0);
+      void mutateProject({
+        type: "putLiveControl",
+        data: { controlId: null, label, sceneId, effectId, page, position },
+      });
+    },
+    deleteLiveControl: (controlId) => {
+      void mutateProject({ type: "deleteLiveControl", data: { controlId } });
+    },
+    triggerLiveControl: (controlId) => {
+      const control = get().liveControls.find((entry) => entry.id === controlId);
+      if (control?.sceneId) get().activateScene(control.sceneId);
+      if (control?.effectId) {
+        const effect = get().effects.find((entry) => entry.id === control.effectId);
+        if (effect) {
+          dispatch(effect.active
+            ? { type: "stopEffect", data: { effectId: effect.id } }
+            : { type: "startEffect", data: { effectId: effect.id, fixtureIds: [] } });
+        }
+      }
+    },
+    setLivePage: (livePage) => set({ livePage: Math.max(1, livePage) }),
     hydrateEngine: (bootstrap) => {
       const availableIds = new Set(bootstrap.project.fixtures.map((fixtureItem) => fixtureItem.id));
       const retainedSelection = get().selectedFixtureIds.filter((id) => availableIds.has(id));
@@ -547,6 +643,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         scenes: bootstrap.project.scenes,
         cueLists: bootstrap.project.cueLists,
         effects: bootstrap.project.effects,
+        liveControls: bootstrap.project.liveControls,
         fixtureDefinitions: bootstrap.project.fixtureDefinitions,
         background: bootstrap.project.background ?? undefined,
         universeCount: bootstrap.project.universeCount,
@@ -564,6 +661,10 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         return {
           fixtures: state.fixtures.map((fixtureItem) => applyFixtureValues(fixtureItem, fixtureValues.get(fixtureItem.id))),
           scenes: state.scenes.map((scene) => ({ ...scene, active: activeScenes.has(scene.id) })),
+          effects: state.effects.map((effect) => ({
+            ...effect,
+            active: view.activeEffectIds.includes(effect.id),
+          })),
           mode: view.operationMode,
           grandMaster: view.grandMaster,
           blackout: view.blackout,

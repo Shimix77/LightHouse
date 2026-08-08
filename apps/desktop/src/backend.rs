@@ -86,7 +86,7 @@ impl DesktopBackend {
     pub fn command(&mut self, command: UiEngineCommand) -> Result<UiEngineView, BackendError> {
         let priority_lane = command.priority_lane();
         let retryable = command.is_retryable();
-        let command = command.into_domain()?;
+        let command = command.into_domain(&self.bundle)?;
         let mut envelope = CommandEnvelope::new(
             Uuid::new_v4().as_u128(),
             "desktop-ui",
@@ -223,6 +223,24 @@ pub enum UiEngineCommand {
         bpm: f64,
     },
     TapTempo,
+    StartEffect {
+        effect_id: String,
+        fixture_ids: Vec<String>,
+    },
+    StopEffect {
+        effect_id: String,
+    },
+    ApplyFan {
+        fixture_ids: Vec<String>,
+        parameter_id: String,
+        base: f64,
+        spread: f64,
+    },
+    ApplyColorFan {
+        fixture_ids: Vec<String>,
+        start_rgb: [f64; 3],
+        end_rgb: [f64; 3],
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -300,6 +318,35 @@ pub enum UiProjectCommand {
         cue_list_id: String,
         index: usize,
     },
+    PutEffect {
+        effect_id: Option<String>,
+        name: String,
+        template: EffectTemplate,
+        target_parameter: String,
+        amplitude: f64,
+        offset: f64,
+        speed_hz: f64,
+        beat_multiplier: f64,
+        beat_sync: bool,
+        spatial_phase: f64,
+        direction: EffectDirection,
+        blend: EffectBlend,
+        order: EffectOrder,
+    },
+    DeleteEffect {
+        effect_id: String,
+    },
+    PutLiveControl {
+        control_id: Option<String>,
+        label: String,
+        scene_id: Option<String>,
+        effect_id: Option<String>,
+        page: u16,
+        position: u16,
+    },
+    DeleteLiveControl {
+        control_id: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -343,12 +390,14 @@ impl UiEngineCommand {
             | Self::PauseCueList { .. }
             | Self::ResumeCueList { .. }
             | Self::SetFreeze { .. }
+            | Self::StartEffect { .. }
+            | Self::StopEffect { .. }
             | Self::TapTempo => PriorityLane::Live,
             _ => PriorityLane::Edit,
         }
     }
 
-    fn into_domain(self) -> Result<Command, BackendError> {
+    fn into_domain(self, bundle: &ProjectBundle) -> Result<Command, BackendError> {
         Ok(match self {
             Self::SetFixtureParameter {
                 fixture_id,
@@ -398,6 +447,42 @@ impl UiEngineCommand {
             Self::SetOperationMode { mode } => Command::SetOperationMode { mode },
             Self::SetTempo { bpm } => Command::SetTempo { bpm },
             Self::TapTempo => Command::TapTempo,
+            Self::StartEffect {
+                effect_id,
+                fixture_ids,
+            } => {
+                let fixture_ids = validated_fixture_ids(bundle, &fixture_ids, true)?;
+                let layout_positions = effect_layout_positions(bundle, &fixture_ids);
+                Command::StartEffect {
+                    effect_id: EffectId::new(parse_id(&effect_id)?),
+                    fixture_ids,
+                    layout_positions,
+                }
+            }
+            Self::StopEffect { effect_id } => Command::StopEffect {
+                effect_id: EffectId::new(parse_id(&effect_id)?),
+            },
+            Self::ApplyFan {
+                fixture_ids,
+                parameter_id,
+                base,
+                spread,
+            } => Command::ApplyFan {
+                fixture_ids: validated_fixture_ids(bundle, &fixture_ids, false)?,
+                parameter_id: ParameterId::new(parameter_id),
+                base: NormalizedValue::new(base)
+                    .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
+                spread,
+            },
+            Self::ApplyColorFan {
+                fixture_ids,
+                start_rgb,
+                end_rgb,
+            } => Command::ApplyColorFan {
+                fixture_ids: validated_fixture_ids(bundle, &fixture_ids, false)?,
+                start_rgb: normalized_rgb(start_rgb)?,
+                end_rgb: normalized_rgb(end_rgb)?,
+            },
         })
     }
 
@@ -413,6 +498,8 @@ impl UiEngineCommand {
                 | Self::SetFreeze { .. }
                 | Self::SetOperationMode { .. }
                 | Self::SetTempo { .. }
+                | Self::ApplyFan { .. }
+                | Self::ApplyColorFan { .. }
         )
     }
 }
@@ -435,6 +522,7 @@ struct UiProjectView {
     scenes: Vec<UiSceneView>,
     cue_lists: Vec<UiCueListView>,
     effects: Vec<UiEffectView>,
+    live_controls: Vec<UiLiveControlView>,
     fixture_definitions: Vec<UiFixtureDefinitionView>,
     background: Option<UiBackgroundView>,
     universe_count: usize,
@@ -552,7 +640,27 @@ struct UiEffectView {
     name: String,
     template: EffectTemplate,
     target_parameter: String,
+    amplitude: f64,
+    offset: f64,
+    speed_hz: f64,
+    beat_multiplier: f64,
     beat_sync: bool,
+    spatial_phase: f64,
+    direction: EffectDirection,
+    blend: EffectBlend,
+    order: EffectOrder,
+    active: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiLiveControlView {
+    id: String,
+    label: String,
+    scene_id: Option<String>,
+    effect_id: Option<String>,
+    page: u16,
+    position: u16,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -720,7 +828,29 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
             name: effect.name.clone(),
             template: effect.template,
             target_parameter: effect.target_parameter.as_str().into(),
+            amplitude: effect.amplitude.get(),
+            offset: effect.offset.get(),
+            speed_hz: effect.speed_hz,
+            beat_multiplier: effect.beat_multiplier,
             beat_sync: effect.beat_sync,
+            spatial_phase: effect.spatial_phase,
+            direction: effect.direction,
+            blend: effect.blend,
+            order: effect.order,
+            active: snapshot.active_effect_ids.contains(&effect.id),
+        })
+        .collect();
+    let live_controls = bundle
+        .project
+        .live_controls
+        .iter()
+        .map(|control| UiLiveControlView {
+            id: control.id.to_string(),
+            label: control.label.clone(),
+            scene_id: control.scene_id.map(|id| id.0.to_string()),
+            effect_id: control.effect_id.map(|id| id.0.to_string()),
+            page: control.page,
+            position: control.position,
         })
         .collect();
     let fixture_definitions = bundle
@@ -749,6 +879,7 @@ fn project_view(bundle: &ProjectBundle, snapshot: &ShowSnapshot) -> UiProjectVie
         scenes,
         cue_lists,
         effects,
+        live_controls,
         fixture_definitions,
         background: background_view(bundle),
         universe_count: bundle.project.universes.len(),
@@ -1580,6 +1711,158 @@ fn apply_project_command(
             renumber_cues(cue_list);
             Ok(true)
         }
+        UiProjectCommand::PutEffect {
+            effect_id,
+            name,
+            template,
+            target_parameter,
+            amplitude,
+            offset,
+            speed_hz,
+            beat_multiplier,
+            beat_sync,
+            spatial_phase,
+            direction,
+            blend,
+            order,
+        } => {
+            let target_parameter = target_parameter.trim();
+            if target_parameter.is_empty() {
+                return Err(BackendError::InvalidCommand(
+                    "effect target parameter cannot be empty".into(),
+                ));
+            }
+            let (effect_id, seed, existing_index) = if let Some(value) = effect_id {
+                let effect_id = EffectId::new(parse_id(&value)?);
+                let index = bundle
+                    .project
+                    .effects
+                    .iter()
+                    .position(|effect| effect.id == effect_id)
+                    .ok_or_else(|| BackendError::InvalidCommand("effect was not found".into()))?;
+                (effect_id, bundle.project.effects[index].seed, Some(index))
+            } else {
+                let raw = Uuid::new_v4().as_u128();
+                (EffectId::new(raw), raw as u64, None)
+            };
+            let definition = EffectDefinition {
+                id: effect_id,
+                name: non_empty_name(name, "Effect"),
+                target_parameter: ParameterId::new(target_parameter),
+                template,
+                amplitude: NormalizedValue::new(amplitude)
+                    .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
+                offset: NormalizedValue::new(offset)
+                    .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
+                speed_hz,
+                beat_multiplier,
+                beat_sync,
+                spatial_phase,
+                direction,
+                blend,
+                order,
+                seed,
+            };
+            definition
+                .validate()
+                .map_err(|error| BackendError::InvalidCommand(error.to_string()))?;
+            if let Some(index) = existing_index {
+                bundle.project.effects[index] = definition;
+            } else {
+                bundle.project.effects.push(definition);
+            }
+            Ok(true)
+        }
+        UiProjectCommand::DeleteEffect { effect_id } => {
+            let effect_id = EffectId::new(parse_id(&effect_id)?);
+            let before = bundle.project.effects.len();
+            bundle
+                .project
+                .effects
+                .retain(|effect| effect.id != effect_id);
+            if bundle.project.effects.len() == before {
+                return Err(BackendError::InvalidCommand("effect was not found".into()));
+            }
+            bundle
+                .project
+                .live_controls
+                .retain(|control| control.effect_id != Some(effect_id));
+            Ok(true)
+        }
+        UiProjectCommand::PutLiveControl {
+            control_id,
+            label,
+            scene_id,
+            effect_id,
+            page,
+            position,
+        } => {
+            if page == 0 {
+                return Err(BackendError::InvalidCommand(
+                    "live control page starts at 1".into(),
+                ));
+            }
+            let scene_id = scene_id
+                .as_deref()
+                .map(parse_id)
+                .transpose()?
+                .map(SceneId::new);
+            let effect_id = effect_id
+                .as_deref()
+                .map(parse_id)
+                .transpose()?
+                .map(EffectId::new);
+            if scene_id.is_some() == effect_id.is_some() {
+                return Err(BackendError::InvalidCommand(
+                    "live control must reference exactly one scene or effect".into(),
+                ));
+            }
+            if scene_id.is_some_and(|id| !bundle.project.scenes.iter().any(|scene| scene.id == id))
+                || effect_id
+                    .is_some_and(|id| !bundle.project.effects.iter().any(|effect| effect.id == id))
+            {
+                return Err(BackendError::InvalidCommand(
+                    "live control target was not found".into(),
+                ));
+            }
+            let record = LiveControlRecord {
+                id: control_id
+                    .as_deref()
+                    .map(parse_id)
+                    .transpose()?
+                    .unwrap_or_else(|| Uuid::new_v4().as_u128()),
+                label: non_empty_name(label, "Live Control"),
+                scene_id,
+                effect_id,
+                page,
+                position,
+            };
+            if let Some(index) = bundle
+                .project
+                .live_controls
+                .iter()
+                .position(|control| control.id == record.id)
+            {
+                bundle.project.live_controls[index] = record;
+            } else {
+                bundle.project.live_controls.push(record);
+            }
+            Ok(false)
+        }
+        UiProjectCommand::DeleteLiveControl { control_id } => {
+            let control_id = parse_id(&control_id)?;
+            let before = bundle.project.live_controls.len();
+            bundle
+                .project
+                .live_controls
+                .retain(|control| control.id != control_id);
+            if bundle.project.live_controls.len() == before {
+                return Err(BackendError::InvalidCommand(
+                    "live control was not found".into(),
+                ));
+            }
+            Ok(false)
+        }
         UiProjectCommand::PutBackground { name, mime, bytes } => {
             if bytes.len() > 12 * 1024 * 1024 {
                 return Err(BackendError::InvalidCommand(
@@ -1722,6 +2005,37 @@ fn validated_fixture_ids(
         }
     }
     Ok(unique)
+}
+
+fn effect_layout_positions(
+    bundle: &ProjectBundle,
+    fixture_ids: &[FixtureId],
+) -> BTreeMap<FixtureId, (f64, f64)> {
+    bundle
+        .project
+        .layout_objects
+        .iter()
+        .filter_map(|record| {
+            let LayoutObjectKind::Fixture { fixture_id } = record.kind else {
+                return None;
+            };
+            fixture_ids.contains(&fixture_id).then_some((
+                fixture_id,
+                (record.transform.x_meters, record.transform.y_meters),
+            ))
+        })
+        .collect()
+}
+
+fn normalized_rgb(values: [f64; 3]) -> Result<[NormalizedValue; 3], BackendError> {
+    let channel = |value| {
+        NormalizedValue::new(value).map_err(|error| BackendError::InvalidCommand(error.to_string()))
+    };
+    Ok([
+        channel(values[0])?,
+        channel(values[1])?,
+        channel(values[2])?,
+    ])
 }
 
 fn validate_fade(fade_ms: u64) -> Result<(), BackendError> {
@@ -2240,8 +2554,9 @@ mod tests {
     #[test]
     fn ui_commands_reject_values_outside_normalized_range() {
         let command = UiEngineCommand::SetGrandMaster { value: 1.2 };
+        let bundle = demo_project().unwrap();
         assert!(matches!(
-            command.into_domain(),
+            command.into_domain(&bundle),
             Err(BackendError::InvalidCommand(_))
         ));
     }
@@ -2405,6 +2720,52 @@ mod tests {
     }
 
     #[test]
+    fn effects_and_live_controls_are_validated_project_content() {
+        let mut bundle = demo_project().unwrap();
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutEffect {
+                effect_id: None,
+                name: "Left Right Pulse".into(),
+                template: EffectTemplate::Pulse,
+                target_parameter: "intensity".into(),
+                amplitude: 0.8,
+                offset: 0.1,
+                speed_hz: 2.0,
+                beat_multiplier: 0.5,
+                beat_sync: true,
+                spatial_phase: 1.0,
+                direction: EffectDirection::Forward,
+                blend: EffectBlend::Replace,
+                order: EffectOrder::LayoutX,
+            },
+            None,
+        )
+        .unwrap();
+        let effect = bundle.project.effects.last().unwrap();
+        let effect_id = effect.id;
+        let effect_name = effect.name.clone();
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::PutLiveControl {
+                control_id: None,
+                label: effect_name,
+                scene_id: None,
+                effect_id: Some(effect_id.0.to_string()),
+                page: 1,
+                position: 9,
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            bundle.project.live_controls.last().unwrap().effect_id,
+            Some(effect_id)
+        );
+        assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
     fn floor_plan_image_round_trips_inside_the_project_file() {
         let mut bundle = demo_project().unwrap();
         let png = b"\x89PNG\r\n\x1a\nminimal-test-image".to_vec();
@@ -2494,6 +2855,35 @@ mod tests {
             })
             .unwrap();
         assert_eq!(scene.active_scene_ids, vec!["201"]);
+
+        let effect = backend
+            .command(UiEngineCommand::StartEffect {
+                effect_id: "401".into(),
+                fixture_ids: vec!["101".into(), "102".into()],
+            })
+            .unwrap();
+        assert_eq!(effect.active_effect_ids, vec!["401"]);
+        let fanned = backend
+            .command(UiEngineCommand::ApplyFan {
+                fixture_ids: vec!["101".into(), "102".into()],
+                parameter_id: "position.pan".into(),
+                base: 0.5,
+                spread: 0.6,
+            })
+            .unwrap();
+        let values: BTreeMap<_, _> = fanned
+            .fixture_values
+            .into_iter()
+            .map(|entry| (entry.fixture_id, entry.parameters))
+            .collect();
+        assert_eq!(values["101"]["position.pan"], 0.2);
+        assert_eq!(values["102"]["position.pan"], 0.8);
+        let stopped = backend
+            .command(UiEngineCommand::StopEffect {
+                effect_id: "401".into(),
+            })
+            .unwrap();
+        assert!(stopped.active_effect_ids.is_empty());
 
         let updated = backend
             .project_command(UiProjectCommand::UpdateLayouts {

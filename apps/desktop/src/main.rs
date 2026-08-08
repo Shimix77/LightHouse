@@ -5,7 +5,7 @@ mod backend;
 use std::sync::Mutex;
 
 use backend::{DesktopBackend, UiBootstrap, UiEngineCommand, UiEngineView, UiProjectCommand};
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
     tauri::Builder::default()
@@ -18,10 +18,32 @@ fn main() {
             get_bootstrap,
             refresh_engine,
             engine_command,
-            project_command
+            project_command,
+            open_live_window
         ])
         .run(tauri::generate_context!())
         .expect("failed to run LightHouse desktop application");
+}
+
+#[tauri::command]
+fn open_live_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("live-display") {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(
+        &app,
+        "live-display",
+        WebviewUrl::App("index.html?display=live".into()),
+    )
+    .title("LightHouse — Live Display")
+    .inner_size(1280.0, 760.0)
+    .min_inner_size(900.0, 600.0)
+    .resizable(true)
+    .build()
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

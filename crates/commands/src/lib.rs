@@ -103,6 +103,17 @@ pub enum Command {
     StopEffect {
         effect_id: EffectId,
     },
+    ApplyFan {
+        fixture_ids: Vec<FixtureId>,
+        parameter_id: ParameterId,
+        base: NormalizedValue,
+        spread: f64,
+    },
+    ApplyColorFan {
+        fixture_ids: Vec<FixtureId>,
+        start_rgb: [NormalizedValue; 3],
+        end_rgb: [NormalizedValue; 3],
+    },
     SetGrandMaster {
         value: NormalizedValue,
     },
@@ -220,6 +231,10 @@ pub enum DomainEvent {
     },
     EffectStopped {
         effect_id: EffectId,
+    },
+    FanApplied {
+        fixture_count: usize,
+        blind: bool,
     },
     GrandMasterChanged {
         value: NormalizedValue,
