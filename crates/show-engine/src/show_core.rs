@@ -11,16 +11,19 @@ use lighthouse_domain::{
 use lighthouse_effects::{
     BeatClock, BeatSource, EffectBlend, EffectDefinition, FixtureEffectContext, TapTempo, sample,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::MonotonicClock;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CueRuntimeSnapshot {
     pub cursor: Option<usize>,
     pub paused: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ShowSnapshot {
     pub project_id: ProjectId,
     pub revision: u64,

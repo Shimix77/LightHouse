@@ -1,19 +1,191 @@
 use std::error::Error;
-use std::net::SocketAddr;
+use std::ffi::OsString;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
 use lighthouse_domain::UniverseId;
+use lighthouse_engine_runtime::{EngineClient, EngineRuntime, EngineRuntimeConfig};
+use lighthouse_ipc::{
+    ClientMessage, EngineTelemetry, HandshakeResult, HandshakeValidator, IPC_CONTRACT_VERSION,
+    ServerMessage, read_message, write_message,
+};
 use lighthouse_output_api::FrameSet;
 use lighthouse_output_artnet::{ART_NET_PORT, ArtNetOutput, ArtNetRoute};
+use lighthouse_persistence::{OutputRouteRecord, ProjectStore};
 use lighthouse_show_engine::{DEFAULT_DMX_REFRESH_HZ, DmxOutputLoop};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let destination: SocketAddr = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| format!("127.0.0.1:{ART_NET_PORT}"))
-        .parse()?;
+    let mut arguments = std::env::args().skip(1);
+    match arguments.next().as_deref() {
+        Some("serve") => {
+            let project_path = arguments.next().ok_or(
+                "usage: lighthouse-show-engine-app serve <project.lightshow> <token> [address]",
+            )?;
+            let auth_token = arguments.next().ok_or(
+                "usage: lighthouse-show-engine-app serve <project.lightshow> <token> [address]",
+            )?;
+            let address = arguments.next().unwrap_or_else(|| "127.0.0.1:0".into());
+            serve(Path::new(&project_path), auth_token, &address)
+        }
+        Some("demo-artnet") => {
+            let destination = arguments
+                .next()
+                .unwrap_or_else(|| format!("127.0.0.1:{ART_NET_PORT}"));
+            demo_artnet(destination.parse()?)
+        }
+        _ => Err("usage: lighthouse-show-engine-app <serve|demo-artnet> ...".into()),
+    }
+}
 
+fn serve(project_path: &Path, auth_token: String, address: &str) -> Result<(), Box<dyn Error>> {
+    let loaded = ProjectStore::load(project_path)?;
+    let mut adapter = ArtNetOutput::bind("0.0.0.0:0")?;
+    configure_artnet_routes(&mut adapter, &loaded.bundle)?;
+    let refresh_hz = loaded.bundle.project.settings.dmx_refresh_hz;
+    let project_id = loaded.bundle.project.project_id;
+    let runtime = EngineRuntime::start(
+        loaded.bundle,
+        adapter,
+        EngineRuntimeConfig {
+            refresh_hz,
+            recovery_journal_path: Some(recovery_path(project_path)),
+            ..EngineRuntimeConfig::default()
+        },
+    )?;
+
+    let listener = TcpListener::bind(address)?;
+    let bound_address = listener.local_addr()?;
+    println!(
+        "{{\"address\":\"{bound_address}\",\"contractVersion\":{IPC_CONTRACT_VERSION},\"projectId\":{}}}",
+        project_id.0
+    );
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let validator = HandshakeValidator::new(auth_token.clone());
+                let client = runtime.client();
+                thread::Builder::new()
+                    .name("lighthouse-ipc-client".into())
+                    .spawn(move || {
+                        let _ = handle_client(stream, &validator, &client);
+                    })?;
+            }
+            Err(error) => eprintln!("IPC accept failed: {error}"),
+        }
+    }
+    Ok(())
+}
+
+fn configure_artnet_routes(
+    adapter: &mut ArtNetOutput,
+    bundle: &lighthouse_persistence::ProjectBundle,
+) -> Result<(), Box<dyn Error>> {
+    for universe in bundle
+        .project
+        .universes
+        .iter()
+        .filter(|universe| universe.enabled)
+    {
+        for route in &universe.routes {
+            match route {
+                OutputRouteRecord::ArtNet {
+                    port_address,
+                    destination,
+                    ..
+                } => {
+                    adapter.set_route(
+                        universe.id,
+                        ArtNetRoute {
+                            port_address: *port_address,
+                            destination: destination.parse()?,
+                        },
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handle_client(
+    mut stream: TcpStream,
+    validator: &HandshakeValidator,
+    client: &EngineClient,
+) -> Result<(), Box<dyn Error>> {
+    stream.set_nodelay(true)?;
+    let Some(hello) = read_message::<_, ClientMessage>(&mut stream)? else {
+        return Ok(());
+    };
+    match validator.validate(&hello) {
+        HandshakeResult::Accepted => {
+            let snapshot = client.snapshot();
+            write_message(
+                &mut stream,
+                &ServerMessage::Welcome {
+                    contract_version: IPC_CONTRACT_VERSION,
+                    engine_version: env!("CARGO_PKG_VERSION").into(),
+                    project_id: snapshot.show.project_id,
+                    revision: snapshot.show.revision,
+                },
+            )?;
+        }
+        HandshakeResult::AuthenticationRejected => {
+            write_message(&mut stream, &ServerMessage::AuthenticationRejected)?;
+            return Ok(());
+        }
+        HandshakeResult::ContractRejected => {
+            write_message(
+                &mut stream,
+                &ServerMessage::ContractRejected {
+                    supported_version: IPC_CONTRACT_VERSION,
+                },
+            )?;
+            return Ok(());
+        }
+    }
+
+    while let Some(message) = read_message::<_, ClientMessage>(&mut stream)? {
+        let response = match message {
+            ClientMessage::Hello { .. } => ServerMessage::EngineError {
+                message: "client is already authenticated".into(),
+            },
+            ClientMessage::Command { envelope } => match client.submit(*envelope) {
+                Ok(outcome) => ServerMessage::CommandOutcome { outcome },
+                Err(error) => ServerMessage::EngineError {
+                    message: error.to_string(),
+                },
+            },
+            ClientMessage::RequestSnapshot => snapshot_message(client),
+            ClientMessage::Ping { nonce } => ServerMessage::Pong { nonce },
+        };
+        write_message(&mut stream, &response)?;
+    }
+    Ok(())
+}
+
+fn snapshot_message(client: &EngineClient) -> ServerMessage {
+    let snapshot = client.snapshot();
+    ServerMessage::Snapshot {
+        snapshot: snapshot.show,
+        telemetry: EngineTelemetry {
+            frames_sent: snapshot.telemetry.output.frames_sent,
+            send_errors: snapshot.telemetry.output.send_errors,
+            missed_deadlines: snapshot.telemetry.output.missed_deadlines,
+            dropped_commands: snapshot.telemetry.dropped_commands,
+            dropped_journal_entries: snapshot.telemetry.dropped_journal_entries,
+        },
+    }
+}
+
+fn recovery_path(project_path: &Path) -> PathBuf {
+    let mut value: OsString = project_path.as_os_str().to_owned();
+    value.push(".recovery.jsonl");
+    PathBuf::from(value)
+}
+
+fn demo_artnet(destination: SocketAddr) -> Result<(), Box<dyn Error>> {
     let universe_id = UniverseId::new(1);
     let mut adapter = ArtNetOutput::bind("0.0.0.0:0")?;
     adapter.set_route(
