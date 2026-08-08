@@ -6,10 +6,12 @@ use lighthouse_domain::{
     CueListId, EffectId, FixtureId, NormalizedValue, ParameterId, ProjectId, SceneId,
 };
 use lighthouse_effects::EffectDefinition;
+use serde::{Deserialize, Serialize};
 
 pub type FixtureParameterValues = BTreeMap<FixtureId, BTreeMap<ParameterId, NormalizedValue>>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum PriorityLane {
     Safety,
     Live,
@@ -17,13 +19,15 @@ pub enum PriorityLane {
     Background,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum OperationMode {
     Edit,
     Live,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SceneData {
     pub id: SceneId,
     pub name: String,
@@ -31,7 +35,8 @@ pub struct SceneData {
     pub default_fade_ms: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CueEntryData {
     pub number: String,
     pub name: String,
@@ -39,14 +44,16 @@ pub struct CueEntryData {
     pub fade_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CueListData {
     pub id: CueListId,
     pub name: String,
     pub entries: Vec<CueEntryData>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type", content = "data")]
 pub enum Command {
     SetFixtureParameter {
         fixture_id: FixtureId,
@@ -131,7 +138,8 @@ impl Command {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandEnvelope {
     pub contract_version: u16,
     pub command_id: u128,
@@ -170,7 +178,8 @@ impl CommandEnvelope {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type", content = "data")]
 pub enum DomainEvent {
     FixtureParameterChanged {
         fixture_id: FixtureId,
@@ -233,7 +242,8 @@ pub enum DomainEvent {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum RejectionCode {
     UnsupportedContractVersion,
     WrongProject,
@@ -246,7 +256,8 @@ pub enum RejectionCode {
     StartOfCueList,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandRejection {
     pub code: RejectionCode,
     pub message: String,
@@ -262,7 +273,8 @@ impl CommandRejection {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandOutcome {
     pub command_id: u128,
     pub revision: u64,

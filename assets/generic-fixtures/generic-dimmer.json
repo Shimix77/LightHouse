@@ -1,0 +1,23 @@
+{
+  "id": "generic.dimmer",
+  "revision": "1",
+  "manufacturer": "LightHouse",
+  "model": "Generic Dimmer",
+  "modes": [
+    {
+      "id": "1ch",
+      "name": "1 Channel",
+      "footprint": 1,
+      "parameters": [
+        {
+          "id": "intensity",
+          "name": "Intensity",
+          "capability": "intensity",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 0 },
+          "invert": false
+        }
+      ]
+    }
+  ]
+}

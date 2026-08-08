@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lighthouse.local/schemas/project/v1/project.schema.json",
+  "title": "LightHouse Project v1",
+  "type": "object",
+  "required": [
+    "projectId",
+    "name",
+    "settings",
+    "universes",
+    "fixtures",
+    "patch",
+    "layoutObjects",
+    "groups",
+    "scenes",
+    "cueLists",
+    "effects",
+    "liveControls"
+  ],
+  "properties": {
+    "projectId": { "type": "integer", "minimum": 0 },
+    "name": { "type": "string", "minLength": 1 },
+    "settings": {
+      "type": "object",
+      "required": [
+        "dmxRefreshHz",
+        "disconnectPolicy",
+        "disconnectTimeoutMs",
+        "autosaveIntervalMs"
+      ],
+      "properties": {
+        "dmxRefreshHz": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "disconnectPolicy": {
+          "enum": ["holdLastLook", "blackoutAfterTimeout"]
+        },
+        "disconnectTimeoutMs": { "type": "integer", "minimum": 0 },
+        "autosaveIntervalMs": { "type": "integer", "minimum": 1000 }
+      },
+      "additionalProperties": true
+    },
+    "universes": { "type": "array" },
+    "fixtures": { "type": "array" },
+    "patch": { "type": "array" },
+    "layoutObjects": { "type": "array" },
+    "groups": { "type": "array" },
+    "scenes": { "type": "array" },
+    "cueLists": { "type": "array" },
+    "effects": { "type": "array" },
+    "liveControls": { "type": "array" }
+  },
+  "additionalProperties": true
+}

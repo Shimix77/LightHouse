@@ -8,8 +8,10 @@ use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
 use lighthouse_domain::{EffectId, NormalizedValue, ParameterId};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EffectTemplate {
     Pulse,
     SineWave,
@@ -28,26 +30,30 @@ pub enum EffectTemplate {
     FireCandleFlicker,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EffectDirection {
     Forward,
     Reverse,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EffectBlend {
     Replace,
     Add,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EffectOrder {
     FixtureOrder,
     LayoutX,
     LayoutY,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EffectDefinition {
     pub id: EffectId,
     pub name: String,
@@ -220,7 +226,8 @@ pub fn fan_value(
     NormalizedValue::clamped(base.get() + (position - 0.5) * spread)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum BeatSource {
     Fixed,
     Tap,

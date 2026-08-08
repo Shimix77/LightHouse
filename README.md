@@ -9,6 +9,7 @@ The project is currently in MVP 0. The first implementation slice is a headless 
 - [Technical architecture](docs/architecture/ARCHITECTURE.md)
 - [Approved MVP decisions](docs/architecture/MVP_DECISIONS.md)
 - [Show Core behavior baseline](docs/behavior-specs/SHOW_CORE.md)
+- [Project format and recovery baseline](docs/behavior-specs/PROJECT_FORMAT.md)
 
 ## MVP 0 engine workspace
 
