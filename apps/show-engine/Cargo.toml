@@ -1,0 +1,15 @@
+[package]
+name = "lighthouse-show-engine-app"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-domain = { path = "../../crates/domain" }
+lighthouse-output-api = { path = "../../crates/output-api" }
+lighthouse-output-artnet = { path = "../../crates/output-artnet" }
+lighthouse-show-engine = { path = "../../crates/show-engine" }
+
+[lints]
+workspace = true

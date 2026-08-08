@@ -1,0 +1,12 @@
+[package]
+name = "lighthouse-virtual-dmx-node"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-output-artnet = { path = "../../crates/output-artnet" }
+
+[lints]
+workspace = true
