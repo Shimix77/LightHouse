@@ -1,15 +1,12 @@
 [package]
-name = "lighthouse-show-engine"
+name = "lighthouse-effects"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-lighthouse-commands = { path = "../commands" }
 lighthouse-domain = { path = "../domain" }
-lighthouse-effects = { path = "../effects" }
-lighthouse-output-api = { path = "../output-api" }
 
 [lints]
 workspace = true

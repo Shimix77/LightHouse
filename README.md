@@ -8,6 +8,7 @@ The project is currently in MVP 0. The first implementation slice is a headless 
 
 - [Technical architecture](docs/architecture/ARCHITECTURE.md)
 - [Approved MVP decisions](docs/architecture/MVP_DECISIONS.md)
+- [Show Core behavior baseline](docs/behavior-specs/SHOW_CORE.md)
 
 ## MVP 0 engine workspace
 
@@ -19,6 +20,9 @@ The Rust workspace deliberately has no UI and no physical-DMX dependency. Its mo
 - logical-parameter resolution into 512-slot DMX frames;
 - a protocol-independent output API, virtual DMX output and Art-Net adapter;
 - an independent 44 Hz output loop with hold-last-look and safety blackout.
+- one versioned command/event path for UI and future external controllers;
+- partial-scene LTP layering, deterministic fades, cue GO/BACK/PAUSE and Blind/Freeze;
+- 15 deterministic effect templates, spatial fixture ordering, fanning and Tap Tempo.
 
 Run the full verification suite with:
 
