@@ -70,6 +70,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "lighthouse-engine-runtime"
+version = "0.1.0"
+dependencies = [
+ "lighthouse-commands",
+ "lighthouse-domain",
+ "lighthouse-fixture-library",
+ "lighthouse-fixture-model",
+ "lighthouse-output-api",
+ "lighthouse-parameter-resolver",
+ "lighthouse-patch",
+ "lighthouse-persistence",
+ "lighthouse-show-engine",
+]
+
+[[package]]
 name = "lighthouse-fixture-library"
 version = "0.1.0"
 dependencies = [
@@ -83,6 +98,17 @@ version = "0.1.0"
 dependencies = [
  "lighthouse-domain",
  "serde",
+]
+
+[[package]]
+name = "lighthouse-ipc"
+version = "0.1.0"
+dependencies = [
+ "lighthouse-commands",
+ "lighthouse-domain",
+ "lighthouse-show-engine",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -140,6 +166,7 @@ dependencies = [
  "lighthouse-domain",
  "lighthouse-effects",
  "lighthouse-output-api",
+ "serde",
 ]
 
 [[package]]
@@ -147,9 +174,13 @@ name = "lighthouse-show-engine-app"
 version = "0.1.0"
 dependencies = [
  "lighthouse-domain",
+ "lighthouse-engine-runtime",
+ "lighthouse-ipc",
  "lighthouse-output-api",
  "lighthouse-output-artnet",
+ "lighthouse-persistence",
  "lighthouse-show-engine",
+ "serde_json",
 ]
 
 [[package]]

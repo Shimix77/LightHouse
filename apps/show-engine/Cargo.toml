@@ -7,9 +7,15 @@ version.workspace = true
 
 [dependencies]
 lighthouse-domain = { path = "../../crates/domain" }
+lighthouse-engine-runtime = { path = "../../crates/engine-runtime" }
+lighthouse-ipc = { path = "../../crates/ipc" }
 lighthouse-output-api = { path = "../../crates/output-api" }
 lighthouse-output-artnet = { path = "../../crates/output-artnet" }
+lighthouse-persistence = { path = "../../crates/persistence" }
 lighthouse-show-engine = { path = "../../crates/show-engine" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
