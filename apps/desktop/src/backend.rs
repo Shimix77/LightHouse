@@ -283,7 +283,12 @@ impl DesktopBackend {
             ));
         }
         let mut next = self.bundle.clone();
-        if let UiProjectCommand::AddFixture { definition_id, .. } = &command
+        let catalog_definition_id = match &command {
+            UiProjectCommand::AddFixture { definition_id, .. }
+            | UiProjectCommand::AddFixturesAtPatch { definition_id, .. } => Some(definition_id),
+            _ => None,
+        };
+        if let Some(definition_id) = catalog_definition_id
             && !next
                 .fixture_definitions
                 .iter()
@@ -4548,6 +4553,22 @@ mod tests {
         assert_eq!(fresh.project.name, "Festival Fresh");
         assert!(fresh.project.fixtures.is_empty());
         assert!(backend.project_path().ends_with("Festival Fresh.lightshow"));
+        let patched_rgbw = backend
+            .project_command(UiProjectCommand::AddFixturesAtPatch {
+                name: "Tested RGBW PAR".into(),
+                definition_id: "generic.led-par-rgbw-4ch".into(),
+                mode_id: "rgbw".into(),
+                quantity: 1,
+                universe: 1,
+                address: 1,
+            })
+            .unwrap();
+        assert_eq!(patched_rgbw.project.fixtures.len(), 1);
+        assert_eq!(patched_rgbw.project.fixtures[0].address, 1);
+        assert_eq!(patched_rgbw.project.fixtures[0].footprint, 4);
+        assert!(backend.bundle.fixture_definitions.iter().any(|definition| {
+            definition.id == "generic.led-par-rgbw-4ch" && definition.modes[0].id == "rgbw"
+        }));
         let copy = backend
             .save_project_as(directory.join("Festival Copy"))
             .unwrap();
