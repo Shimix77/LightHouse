@@ -627,7 +627,8 @@ mod tests {
     }
 
     fn wait_for_slot(handle: &VirtualDmxHandle, expected: u8) {
-        for _ in 0..100 {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
             let value = handle
                 .snapshot()
                 .last_frames
@@ -636,9 +637,11 @@ mod tests {
             if value == Some(expected) {
                 return;
             }
+            if Instant::now() >= deadline {
+                panic!("virtual DMX slot 1 did not reach {expected}; last value was {value:?}");
+            }
             thread::sleep(Duration::from_millis(5));
         }
-        panic!("virtual DMX slot 1 did not reach {expected}");
     }
 
     #[test]

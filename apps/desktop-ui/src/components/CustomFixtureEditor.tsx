@@ -107,7 +107,14 @@ export function CustomFixtureDialog({ onClose, onCreated, definition }: CustomFi
   const [testerFixtureId, setTesterFixtureId] = useState("");
   const [testerArmed, setTesterArmed] = useState(false);
   const [testerConfirming, setTesterConfirming] = useState(false);
-  const [testParameterId, setTestParameterId] = useState(initialMode?.parameters[0]?.id ?? "");
+  const hasPhysicalIntensity = initialMode?.parameters.some((parameter) =>
+    parameter.id === "intensity" || parameter.id.startsWith("intensity.pixel-")
+  ) ?? false;
+  const [testParameterId, setTestParameterId] = useState(
+    definition?.virtualColor && !hasPhysicalIntensity
+      ? "intensity"
+      : initialMode?.parameters[0]?.id ?? "",
+  );
   const [testRaw, setTestRaw] = useState(0);
 
   const patchedFixtures = fixtures.filter((fixture) => fixture.definitionId === definition?.id);
@@ -214,10 +221,14 @@ export function CustomFixtureDialog({ onClose, onCreated, definition }: CustomFi
 
   const armTester = () => {
     if (!resolvedTesterFixture) return;
-    for (const intensity of initialMode?.parameters.filter((parameter) =>
+    const intensities = initialMode?.parameters.filter((parameter) =>
       parameter.id === "intensity" || parameter.id.startsWith("intensity.pixel-")
-    ) ?? []) {
+    ) ?? [];
+    for (const intensity of intensities) {
       testFixtureParameter(resolvedTesterFixture, intensity.id, 0);
+    }
+    if (intensities.length === 0 && definition?.virtualColor) {
+      testFixtureParameter(resolvedTesterFixture, "intensity", 0);
     }
     setTesterArmed(true);
     setTesterConfirming(false);
@@ -332,7 +343,9 @@ function FixtureTester({ definition, mode, patchedFixtures, fixtureId, onFixture
   raw: number;
   onRawChange: (raw: number) => void;
 }) {
-  return <section className="fixture-profile-tester"><small>PHYSICAL DMX TESTER</small>{!definition ? <p>Save and patch one fixture first. Then reopen the custom profile to test it.</p> : patchedFixtures.length === 0 ? <p>Patch a {definition.model} fixture before testing this profile.</p> : <><label><span>Patched fixture</span><select value={fixtureId} onChange={(event) => onFixtureChange(event.target.value)}>{patchedFixtures.map((fixture) => <option key={fixture.id} value={fixture.id}>{fixture.name} · U{fixture.universe}/{fixture.address}</option>)}</select></label>{!armed && !confirming && <button className="arm-test-button" onClick={onAskArm}>⚠ Arm Fixture Tester…</button>}{confirming && <div className="tester-confirmation"><strong>Physical movement or flashing may start</strong><p>Clear the stage, verify the fixture address, and keep BLACKOUT available. Intensity is forced to zero before the tester is armed.</p><div><button onClick={onCancelArm}>Cancel</button><button onClick={onArm}>I Understand — Arm</button></div></div>}{armed && <><strong className="tester-armed">● TESTER ARMED</strong><label><span>Logical parameter</span><select value={parameterId} onChange={(event) => { onParameterChange(event.target.value); onRawChange(0); }}>{mode?.parameters.map((parameter) => <option value={parameter.id} key={parameter.id}>{parameter.name} · CH {parameter.coarseChannel}{parameter.fineChannel ? ` + ${parameter.fineChannel}` : ""}</option>)}</select></label><label><span>DMX value</span><input type="range" min={0} max={255} step={1} value={raw} onChange={(event) => onRawChange(Number(event.target.value))} /><output>{raw}</output></label><div className="tester-quick-values">{[0, 64, 128, 192, 255].map((value) => <button key={value} onClick={() => onRawChange(value)}>{value}</button>)}</div><p>Test values still pass through the logical fixture resolver; the UI never writes directly into a DMX frame.</p></>}</>}</section>;
+  const virtualDimmer = definition?.virtualColor
+    && !(mode?.parameters.some((parameter) => parameter.id === "intensity" || parameter.id.startsWith("intensity.pixel-")) ?? false);
+  return <section className="fixture-profile-tester"><small>PHYSICAL DMX TESTER</small>{!definition ? <p>Save and patch one fixture first. Then reopen the custom profile to test it.</p> : patchedFixtures.length === 0 ? <p>Patch a {definition.model} fixture before testing this profile.</p> : <><label><span>Patched fixture</span><select value={fixtureId} onChange={(event) => onFixtureChange(event.target.value)}>{patchedFixtures.map((fixture) => <option key={fixture.id} value={fixture.id}>{fixture.name} · U{fixture.universe}/{fixture.address}</option>)}</select></label>{!armed && !confirming && <button className="arm-test-button" onClick={onAskArm}>⚠ Arm Fixture Tester…</button>}{confirming && <div className="tester-confirmation"><strong>Physical movement or flashing may start</strong><p>Clear the stage, verify the fixture address, and keep BLACKOUT available. Intensity is forced to zero before the tester is armed.</p><div><button onClick={onCancelArm}>Cancel</button><button onClick={onArm}>I Understand — Arm</button></div></div>}{armed && <><strong className="tester-armed">● TESTER ARMED</strong><label><span>Logical parameter</span><select value={parameterId} onChange={(event) => { onParameterChange(event.target.value); onRawChange(0); }}>{virtualDimmer && <option value="intensity">Dimmer · VIRTUAL RGB</option>}{mode?.parameters.map((parameter) => <option value={parameter.id} key={parameter.id}>{parameter.name} · CH {parameter.coarseChannel}{parameter.fineChannel ? ` + ${parameter.fineChannel}` : ""}</option>)}</select></label><label><span>DMX value</span><input type="range" min={0} max={255} step={1} value={raw} onChange={(event) => onRawChange(Number(event.target.value))} /><output>{raw}</output></label><div className="tester-quick-values">{[0, 64, 128, 192, 255].map((value) => <button key={value} onClick={() => onRawChange(value)}>{value}</button>)}</div><p>Test values still pass through the logical fixture resolver; the UI never writes directly into a DMX frame.</p></>}</>}</section>;
 }
 
 function WizardProgress({ step }: { step: number }) {

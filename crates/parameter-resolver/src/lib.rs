@@ -42,6 +42,19 @@ pub fn resolve_fixture(
     }
 
     let frame = output.frame_mut(state.patch.universe_id);
+    // Lightkey-style RGB fixtures without a physical master channel still expose a
+    // logical dimmer. It scales every emitter and also marks those slots for the
+    // output safety lane, so Grand Master and Blackout remain effective.
+    let virtual_dimmer = supports_virtual_dimmer(state.mode);
+    let virtual_intensity = if virtual_dimmer {
+        state
+            .values
+            .get(&ParameterId::from("intensity"))
+            .copied()
+            .unwrap_or(NormalizedValue::ZERO)
+    } else {
+        NormalizedValue::FULL
+    };
     for parameter in &state.mode.parameters {
         let mut value = state
             .values
@@ -51,7 +64,13 @@ pub fn resolve_fixture(
         if parameter.invert {
             value = value.inverted();
         }
-        let is_intensity = parameter.capability == ParameterCapability::Intensity;
+        let virtual_intensity_slot =
+            virtual_dimmer && parameter.capability == ParameterCapability::Color;
+        if virtual_intensity_slot {
+            value = NormalizedValue::clamped(value.get() * virtual_intensity.get());
+        }
+        let is_intensity =
+            parameter.capability == ParameterCapability::Intensity || virtual_intensity_slot;
 
         match parameter.binding {
             DmxBinding::EightBit { offset } => {
@@ -74,6 +93,28 @@ pub fn resolve_fixture(
         }
     }
     Ok(())
+}
+
+fn supports_virtual_dimmer(mode: &FixtureMode) -> bool {
+    if mode
+        .parameters
+        .iter()
+        .any(|parameter| parameter.capability == ParameterCapability::Intensity)
+    {
+        return false;
+    }
+    ["color.red", "color.green", "color.blue"]
+        .into_iter()
+        .all(|component| {
+            mode.parameters.iter().any(|parameter| {
+                parameter.capability == ParameterCapability::Color
+                    && (parameter.id.as_str() == component
+                        || parameter
+                            .id
+                            .as_str()
+                            .starts_with(&format!("{component}.pixel-")))
+            })
+        })
 }
 
 #[must_use]
@@ -267,5 +308,65 @@ mod tests {
         let frame = frames.frame(UniverseId::new(1)).unwrap();
         assert_eq!(frame.slot(1), Some(0));
         assert_eq!(frame.slot(2), Some(255));
+    }
+
+    #[test]
+    fn rgb_only_fixture_gets_a_virtual_dimmer_and_safe_blackout() {
+        let fixture_id = FixtureId::new(1);
+        let mode = FixtureMode {
+            id: "rgb".into(),
+            name: "RGB only".into(),
+            footprint: 4,
+            parameters: vec![
+                parameter(
+                    "color.red",
+                    DmxBinding::EightBit { offset: 0 },
+                    ParameterCapability::Color,
+                    false,
+                ),
+                parameter(
+                    "color.green",
+                    DmxBinding::EightBit { offset: 1 },
+                    ParameterCapability::Color,
+                    false,
+                ),
+                parameter(
+                    "color.blue",
+                    DmxBinding::EightBit { offset: 2 },
+                    ParameterCapability::Color,
+                    false,
+                ),
+            ],
+            channels: Vec::new(),
+        };
+        let patch = PatchAssignment::new(fixture_id, UniverseId::new(1), 1, 4).unwrap();
+        let values = BTreeMap::from([
+            (
+                ParameterId::from("intensity"),
+                NormalizedValue::new(0.5).unwrap(),
+            ),
+            (ParameterId::from("color.red"), NormalizedValue::FULL),
+            (
+                ParameterId::from("color.green"),
+                NormalizedValue::new(0.5).unwrap(),
+            ),
+            (ParameterId::from("color.blue"), NormalizedValue::ZERO),
+        ]);
+        let frames = resolve(&[FixtureRenderState {
+            fixture_id,
+            mode: &mode,
+            patch: &patch,
+            values: &values,
+        }])
+        .unwrap();
+        let frame = frames.frame(UniverseId::new(1)).unwrap();
+        assert_eq!(frame.slot(1), Some(128));
+        assert_eq!(frame.slot(2), Some(64));
+        assert_eq!(frame.slot(3), Some(0));
+        assert_eq!(frame.slot(4), Some(0));
+
+        let blackout = frames.blackout_copy();
+        assert_eq!(blackout.frame(UniverseId::new(1)).unwrap().slot(1), Some(0));
+        assert_eq!(blackout.frame(UniverseId::new(1)).unwrap().slot(2), Some(0));
     }
 }

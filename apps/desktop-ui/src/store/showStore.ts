@@ -185,6 +185,11 @@ const initialFixtureDefinitions: FixtureDefinitionSummary[] = [
   { id: "generic.dimmer", manufacturer: "LightHouse", model: "Generic Dimmer", source: "generic", modes: [{ id: "1ch", name: "1 Channel", footprint: 1, parameters: [
     { id: "intensity", name: "Intensity", capability: "intensity", defaultValue: 0, resolution: 8, coarseChannel: 1, fineChannel: null, invert: false },
   ] }] },
+  { id: "generic.led-par-rgb-4ch", manufacturer: "LightHouse", model: "Generic LED PAR RGB (4ch)", source: "generic", fixtureType: "par", icon: "par", beamKind: "spot", virtualColor: true, modes: [{ id: "rgb-unused", name: "RGB + Unused", footprint: 4, parameters: [
+    { id: "color.red", name: "Red", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 1, fineChannel: null, invert: false },
+    { id: "color.green", name: "Green", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 2, fineChannel: null, invert: false },
+    { id: "color.blue", name: "Blue", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 3, fineChannel: null, invert: false },
+  ] }] },
   { id: "generic.rgbw-par", manufacturer: "LightHouse", model: "Generic RGBW PAR", source: "generic", modes: [{ id: "5ch", name: "Intensity + RGBW", footprint: 5, parameters: [
     { id: "intensity", name: "Intensity", capability: "intensity", defaultValue: 0, resolution: 8, coarseChannel: 1, fineChannel: null, invert: false },
     { id: "color.red", name: "Red", capability: "color", defaultValue: 0, resolution: 8, coarseChannel: 2, fineChannel: null, invert: false },

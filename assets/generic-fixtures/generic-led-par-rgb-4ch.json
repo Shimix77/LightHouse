@@ -1,0 +1,89 @@
+{
+  "id": "generic.led-par-rgb-4ch",
+  "revision": "1",
+  "manufacturer": "LightHouse",
+  "model": "Generic LED PAR RGB (4ch)",
+  "metadata": {
+    "fixtureType": "par",
+    "icon": "par",
+    "beamKind": "spot",
+    "beamAngleMinDegrees": null,
+    "beamAngleMaxDegrees": null,
+    "virtualColor": true
+  },
+  "modes": [
+    {
+      "id": "rgb-unused",
+      "name": "RGB + Unused",
+      "footprint": 4,
+      "parameters": [
+        {
+          "id": "color.red",
+          "name": "Red",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 0 },
+          "invert": false
+        },
+        {
+          "id": "color.green",
+          "name": "Green",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 1 },
+          "invert": false
+        },
+        {
+          "id": "color.blue",
+          "name": "Blue",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 2 },
+          "invert": false
+        }
+      ],
+      "channels": [
+        {
+          "offset": 0,
+          "name": "Red",
+          "property": "color.red",
+          "parameterId": "color.red",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "Red", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        },
+        {
+          "offset": 1,
+          "name": "Green",
+          "property": "color.green",
+          "parameterId": "color.green",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "Green", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        },
+        {
+          "offset": 2,
+          "name": "Blue",
+          "property": "color.blue",
+          "parameterId": "color.blue",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "Blue", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        },
+        {
+          "offset": 3,
+          "name": "Unused",
+          "property": "unused",
+          "parameterId": null,
+          "capability": { "custom": "Unused" },
+          "ranges": [{ "start": 0, "end": 255, "label": "No Function", "semanticMin": 0.0, "semanticMax": 255.0, "unit": "raw", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        }
+      ]
+    }
+  ]
+}

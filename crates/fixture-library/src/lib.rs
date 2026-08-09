@@ -12,6 +12,7 @@ pub use ofl::import_ofl_fixture;
 
 const GENERIC_FIXTURE_JSON: &[&str] = &[
     include_str!("../../../assets/generic-fixtures/generic-dimmer.json"),
+    include_str!("../../../assets/generic-fixtures/generic-led-par-rgb-4ch.json"),
     include_str!("../../../assets/generic-fixtures/generic-rgbw-par.json"),
     include_str!("../../../assets/generic-fixtures/generic-moving-head-16bit.json"),
 ];
@@ -146,7 +147,7 @@ mod tests {
     #[test]
     fn embedded_generic_pack_is_parseable_and_semantically_valid() {
         let library = FixtureLibrary::with_generic_pack().unwrap();
-        assert_eq!(library.len(), 3);
+        assert_eq!(library.len(), 4);
         assert!(
             library
                 .iter()
