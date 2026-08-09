@@ -13,7 +13,10 @@ const LOOK_DURATION: Duration = Duration::from_millis(900);
 const RAMP_PEAK_HOLD: Duration = Duration::from_millis(500);
 const RAMP_STEPS: u16 = 80;
 const WHITE_ONLY_DURATION: Duration = Duration::from_secs(2);
+const CHANNEL_FOUR_STEP_DURATION: Duration = Duration::from_millis(800);
+const CHANNEL_FOUR_BLACKOUT_DURATION: Duration = Duration::from_millis(300);
 const BLACKOUT_DURATION: Duration = Duration::from_millis(450);
+const CHANNEL_FOUR: &str = "--channel-four";
 const CONFIRMATION: &str = "--confirm-live-dmx";
 const RAMP: &str = "--ramp";
 const RGB_ONLY: &str = "--rgb-only";
@@ -36,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let test_mode = match arguments.next().as_deref() {
         None => TestMode::Complete,
+        Some(CHANNEL_FOUR) => TestMode::ChannelFour,
         Some(RAMP) => TestMode::Ramp,
         Some(RGB_ONLY) => TestMode::RgbOnly,
         Some(WHITE_ONLY) => TestMode::WhiteOnly,
@@ -54,7 +58,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!(
         "LIVE RGB test on {device_path}; CH1=R CH2=G CH3=B CH4=0, maximum={maximum_percent}%"
     );
-    let test_result = if test_mode == TestMode::Ramp {
+    let test_result = if test_mode == TestMode::ChannelFour {
+        run_channel_four_probe(&mut output, universe_id)
+    } else if test_mode == TestMode::Ramp {
         run_ramps(&mut output, universe_id, maximum)
     } else if test_mode == TestMode::WhiteOnly {
         eprintln!("LOOK: BLACKOUT");
@@ -101,10 +107,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TestMode {
+    ChannelFour,
     Complete,
     Ramp,
     RgbOnly,
     WhiteOnly,
+}
+
+fn run_channel_four_probe(
+    output: &mut OpenDmxOutput,
+    universe_id: UniverseId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const LOW_RED: u8 = 26;
+    eprintln!("LOOK: BLACKOUT");
+    send_look(output, universe_id, [0, 0, 0, 0], BLACKOUT_DURATION)?;
+    for channel_four in [0, 32, 64, 96, 128, 160, 192, 224, 255] {
+        eprintln!("LOOK: LOW RED, CH4={channel_four} ([{LOW_RED}, 0, 0, {channel_four}])");
+        send_look(
+            output,
+            universe_id,
+            [LOW_RED, 0, 0, channel_four],
+            CHANNEL_FOUR_STEP_DURATION,
+        )?;
+        eprintln!("LOOK: BLACKOUT");
+        send_look(
+            output,
+            universe_id,
+            [0, 0, 0, 0],
+            CHANNEL_FOUR_BLACKOUT_DURATION,
+        )?;
+    }
+    Ok(())
 }
 
 fn run_ramps(
