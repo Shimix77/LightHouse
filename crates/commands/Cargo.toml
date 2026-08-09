@@ -1,0 +1,14 @@
+[package]
+name = "lighthouse-commands"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-domain = { path = "../domain" }
+lighthouse-effects = { path = "../effects" }
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "lighthouse-ipc"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-commands = { path = "../commands" }
+lighthouse-domain = { path = "../domain" }
+lighthouse-show-engine = { path = "../show-engine" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

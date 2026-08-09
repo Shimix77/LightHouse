@@ -1,0 +1,10 @@
+/target/
+/node_modules/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+/apps/desktop/gen/
+/apps/desktop/binaries/*
+!/apps/desktop/binaries/.gitkeep
+*.dmxcap
+.DS_Store

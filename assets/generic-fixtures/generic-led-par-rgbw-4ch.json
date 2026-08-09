@@ -1,0 +1,97 @@
+{
+  "id": "generic.led-par-rgbw-4ch",
+  "revision": "1",
+  "manufacturer": "LightHouse",
+  "model": "Generic LED PAR RGBW (4ch)",
+  "metadata": {
+    "fixtureType": "par",
+    "icon": "par",
+    "beamKind": "spot",
+    "beamAngleMinDegrees": null,
+    "beamAngleMaxDegrees": null,
+    "virtualColor": true
+  },
+  "modes": [
+    {
+      "id": "rgbw",
+      "name": "RGBW",
+      "footprint": 4,
+      "parameters": [
+        {
+          "id": "color.red",
+          "name": "Red",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 0 },
+          "invert": false
+        },
+        {
+          "id": "color.green",
+          "name": "Green",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 1 },
+          "invert": false
+        },
+        {
+          "id": "color.blue",
+          "name": "Blue",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 2 },
+          "invert": false
+        },
+        {
+          "id": "color.white",
+          "name": "White",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 3 },
+          "invert": false
+        }
+      ],
+      "channels": [
+        {
+          "offset": 0,
+          "name": "Red",
+          "property": "color.red",
+          "parameterId": "color.red",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "Red", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        },
+        {
+          "offset": 1,
+          "name": "Green",
+          "property": "color.green",
+          "parameterId": "color.green",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "Green", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        },
+        {
+          "offset": 2,
+          "name": "Blue",
+          "property": "color.blue",
+          "parameterId": "color.blue",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "Blue", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        },
+        {
+          "offset": 3,
+          "name": "White",
+          "property": "color.white",
+          "parameterId": "color.white",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "White", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
+          "pixel": null,
+          "hazardous": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "lighthouse-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "ui:dev": "pnpm --dir apps/desktop-ui dev",
+    "ui:build": "pnpm --dir apps/desktop-ui build",
+    "ui:check": "pnpm --dir apps/desktop-ui check",
+    "desktop:dev": "tauri dev --config apps/desktop/tauri.conf.json",
+    "desktop:build-bin": "tauri build --config apps/desktop/tauri.conf.json --no-bundle",
+    "desktop:build": "tauri build --config apps/desktop/tauri.conf.json --bundles app",
+    "desktop:dmg": "tauri build --config apps/desktop/tauri.conf.json --bundles app,dmg"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

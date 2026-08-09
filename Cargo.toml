@@ -1,0 +1,39 @@
+[workspace]
+members = [
+    "apps/desktop",
+    "apps/show-engine",
+    "apps/virtual-dmx-node",
+    "crates/commands",
+    "crates/domain",
+    "crates/effects",
+    "crates/engine-runtime",
+    "crates/fixture-library",
+    "crates/fixture-model",
+    "crates/ipc",
+    "crates/output-api",
+    "crates/output-artnet",
+    "crates/output-usb-dmx",
+    "crates/parameter-resolver",
+    "crates/patch",
+    "crates/persistence",
+    "crates/show-engine",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.97"
+version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+zip = { version = "8.0.0", default-features = false }
+serialport = { version = "4.9.0", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"

@@ -1,0 +1,15 @@
+[package]
+name = "lighthouse-parameter-resolver"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-domain = { path = "../domain" }
+lighthouse-fixture-model = { path = "../fixture-model" }
+lighthouse-output-api = { path = "../output-api" }
+lighthouse-patch = { path = "../patch" }
+
+[lints]
+workspace = true

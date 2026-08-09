@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="background" x1="72" y1="54" x2="438" y2="458" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B2735"/>
+      <stop offset="1" stop-color="#090D13"/>
+    </linearGradient>
+    <linearGradient id="lamp" x1="190" y1="147" x2="324" y2="357" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8F1FF"/>
+      <stop offset="0.42" stop-color="#5DD4FF"/>
+      <stop offset="1" stop-color="#318CD9"/>
+    </linearGradient>
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)"/>
+  <circle cx="256" cy="256" r="154" fill="none" stroke="#405268" stroke-width="10"/>
+  <circle cx="256" cy="256" r="127" fill="none" stroke="#243346" stroke-width="3"/>
+  <circle cx="256" cy="256" r="92" fill="#55CAFF" opacity=".19" filter="url(#glow)"/>
+  <path d="M201 185c0-35 25-63 55-63s55 28 55 63v142c0 35-25 63-55 63s-55-28-55-63V185Z" fill="url(#lamp)"/>
+  <path d="M221 184c0-22 16-40 35-40 12 0 23 7 29 18-31 7-49 31-49 73v104c0 10 1 19 3 27-11-7-18-22-18-39V184Z" fill="#E4FAFF" opacity=".42"/>
+  <g fill="#77DAFF">
+    <rect x="247" y="40" width="18" height="61" rx="9"/>
+    <rect x="247" y="411" width="18" height="61" rx="9"/>
+    <rect x="40" y="247" width="61" height="18" rx="9"/>
+    <rect x="411" y="247" width="61" height="18" rx="9"/>
+  </g>
+  <g fill="#A4E9FF">
+    <path d="m120 107 13-13 42 42-13 13z"/>
+    <path d="m337 376 13-13 42 42-13 13z"/>
+    <path d="m107 392-13-13 42-42 13 13z"/>
+    <path d="m376 162-13-13 42-42 13 13z"/>
+  </g>
+</svg>

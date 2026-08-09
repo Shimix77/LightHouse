@@ -1,0 +1,22 @@
+[package]
+name = "lighthouse-engine-runtime"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-commands = { path = "../commands" }
+lighthouse-domain = { path = "../domain" }
+lighthouse-fixture-model = { path = "../fixture-model" }
+lighthouse-output-api = { path = "../output-api" }
+lighthouse-parameter-resolver = { path = "../parameter-resolver" }
+lighthouse-patch = { path = "../patch" }
+lighthouse-persistence = { path = "../persistence" }
+lighthouse-show-engine = { path = "../show-engine" }
+
+[dev-dependencies]
+lighthouse-fixture-library = { path = "../fixture-library" }
+
+[lints]
+workspace = true

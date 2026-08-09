@@ -1,0 +1,15 @@
+[package]
+name = "lighthouse-fixture-library"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-domain = { path = "../domain" }
+lighthouse-fixture-model = { path = "../fixture-model" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

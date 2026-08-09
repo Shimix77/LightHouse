@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LightHouse",
+  "version": "0.1.0",
+  "identifier": "com.lighthouse.controller",
+  "build": {
+    "beforeDevCommand": "cargo build -p lighthouse-show-engine-app && pnpm --dir apps/desktop-ui dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bash scripts/prepare-sidecar.sh release && pnpm --dir apps/desktop-ui build",
+    "frontendDist": "../desktop-ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LightHouse",
+        "width": 1600,
+        "height": 1000,
+        "minWidth": 1180,
+        "minHeight": 720,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: blob: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "externalBin": ["binaries/lighthouse-show-engine-app"],
+    "icon": ["icons/icon.png"],
+    "macOS": {
+      "entitlements": "LightHouse.entitlements",
+      "infoPlist": "Info.plist",
+      "signingIdentity": "-"
+    }
+  }
+}

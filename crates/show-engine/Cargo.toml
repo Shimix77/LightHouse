@@ -1,0 +1,16 @@
+[package]
+name = "lighthouse-show-engine"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+lighthouse-commands = { path = "../commands" }
+lighthouse-domain = { path = "../domain" }
+lighthouse-effects = { path = "../effects" }
+lighthouse-output-api = { path = "../output-api" }
+serde.workspace = true
+
+[lints]
+workspace = true
