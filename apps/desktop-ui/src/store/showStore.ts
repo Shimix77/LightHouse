@@ -755,7 +755,37 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       data: settings,
     }),
     addStageObject: (kind, name) => {
-      void mutateProject({ type: "addStageObject", data: { kind, name, x: 0, y: 0 } });
+      const existing = get().stageObjects;
+      const kindCount = existing.filter((object) => object.kind === kind).length;
+      const placement = initialStageObjectPosition(kind, kindCount);
+      if (!hasNativeEngine()) {
+        get().captureFixtureHistory();
+        const dimensions = initialStageObjectDimensions(kind);
+        const added: StageObject = {
+          id: `stage-object-${crypto.randomUUID()}`,
+          name,
+          kind,
+          ...placement,
+          ...dimensions,
+          rotation: 0,
+          locked: false,
+          hidden: false,
+          layer: "Stage Objects",
+          opacity: 1,
+        };
+        set((state) => ({
+          stageObjects: [...state.stageObjects, added],
+          selectedStageObjectIds: [added.id],
+          selectedFixtureIds: [],
+        }));
+        return;
+      }
+      void (async () => {
+        const saved = await mutateProject({ type: "addStageObject", data: { kind, name, ...placement } });
+        if (!saved) return;
+        const added = get().stageObjects.at(-1);
+        if (added) get().selectStageObjects([added.id]);
+      })();
     },
     putGroup: (groupId, name, fixtureIds) => {
       void mutateProject({ type: "putGroup", data: { groupId, name, fixtureIds } });
@@ -1213,6 +1243,25 @@ function setLiveTargetActive(
   dispatch(enabled
     ? { type: "startEffect", data: { effectId: effect.id, fixtureIds: [] } }
     : { type: "stopEffect", data: { effectId: effect.id } });
+}
+
+function initialStageObjectPosition(kind: StageObjectKind, index: number): { x: number; y: number } {
+  if (kind === "truss") return { x: 0, y: -1.2 - index * 0.65 };
+  if (kind === "stage") return { x: 0, y: 1.5 + index * 0.8 };
+  if (kind === "speaker") {
+    const side = index % 2 === 0 ? -1 : 1;
+    return { x: side * (2.6 + Math.floor(index / 2) * 0.7), y: 0.5 };
+  }
+  if (kind === "person") return { x: (index - 1) * 0.9, y: 1.7 };
+  return { x: -2.4 + (index % 5) * 1.2, y: -2.4 + Math.floor(index / 5) * 1.1 };
+}
+
+function initialStageObjectDimensions(kind: StageObjectKind): { width: number; height: number } {
+  if (kind === "truss") return { width: 4, height: 0.35 };
+  if (kind === "speaker") return { width: 0.7, height: 0.7 };
+  if (kind === "stage") return { width: 4, height: 3 };
+  if (kind === "person") return { width: 0.55, height: 0.55 };
+  return { width: 1, height: 1 };
 }
 
 function clamp(value: number): number {

@@ -20,11 +20,16 @@ export function Inspector() {
   const operationMode = useShowStore((state) => state.mode);
   const selected = fixtures.filter((fixtureItem) => selectedIds.includes(fixtureItem.id));
   const primary = selected[0];
-  const selectedMode = primary
-    ? fixtureDefinitions
-        .find((definition) => definition.id === primary.definitionId)
-        ?.modes.find((mode) => mode.id === primary.modeId)
+  const selectedDefinition = primary
+    ? fixtureDefinitions.find((definition) => definition.id === primary.definitionId)
     : undefined;
+  const selectedMode = primary
+    ? selectedDefinition?.modes.find((mode) => mode.id === primary.modeId)
+    : undefined;
+  const hasColor = Boolean(selectedDefinition?.virtualColor || selectedMode?.parameters.some((parameter) => parameter.capability === "color"));
+  const hasIntensity = hasColor || (selectedMode?.parameters.some((parameter) => parameter.capability === "intensity") ?? true);
+  const hasPosition = Boolean(selectedMode?.parameters.some((parameter) => parameter.capability === "position"));
+  const hasBeam = Boolean(selectedMode?.parameters.some((parameter) => parameter.capability === "beam"));
   const whiteParameter = selectedMode?.parameters.find((parameter) => parameter.id === "color.white");
   const additionalParameters = selectedMode?.parameters.filter((parameter) => ![
     "intensity",
@@ -90,11 +95,11 @@ export function Inspector() {
     <aside className="panel inspector-panel" aria-label="Fixture inspector">
       <div className="inspector-heading">
         <div className="large-fixture-icon" style={{ "--fixture-color": primary.color } as CSSProperties}>●</div>
-        <div><small>{selected.length > 1 ? `${selected.length} FIXTURES` : "MOVING HEAD"}</small><h2>{selected.length > 1 ? "Multiple Selection" : primary.name}</h2></div>
+        <div><small>{selected.length > 1 ? `${selected.length} FIXTURES` : fixtureKindLabel(primary.kind)}</small><h2>{selected.length > 1 ? "Multiple Selection" : primary.name}</h2></div>
         <span aria-hidden="true" />
       </div>
 
-      <InspectorSection title="Intensity" open>
+      {hasIntensity && <InspectorSection title="Intensity" open>
         <Fader
           label="Dimmer"
           value={primary.intensity}
@@ -102,9 +107,9 @@ export function Inspector() {
           onStart={captureHistory}
           onChange={(intensity) => updateSelected({ intensity })}
         />
-      </InspectorSection>
+      </InspectorSection>}
 
-      <InspectorSection title="Color" open>
+      {hasColor && <InspectorSection title="Color" open>
         <div className="color-control">
           <label className="color-swatch" style={{ background: primary.color }}>
             <input
@@ -141,9 +146,9 @@ export function Inspector() {
             />
           </div>
         )}
-      </InspectorSection>
+      </InspectorSection>}
 
-      <InspectorSection title="Position" open>
+      {hasPosition && <InspectorSection title="Position" open>
         <Fader label="Pan" value={primary.pan} onStart={captureHistory} onChange={(pan) => updateSelected({ pan })} />
         <Fader label="Tilt" value={primary.tilt} onStart={captureHistory} onChange={(tilt) => updateSelected({ tilt })} />
         <div className="layout-toggle-row axis-invert-row">
@@ -156,11 +161,11 @@ export function Inspector() {
             onClick={() => updateSelectedFixtureAxes(primary.invertPan, !primary.invertTilt)}
           >Invert Tilt</button>
         </div>
-      </InspectorSection>
+      </InspectorSection>}
 
-      <InspectorSection title="Beam" open>
+      {hasBeam && <InspectorSection title="Beam" open>
         <Fader label="Zoom" value={primary.zoom} onStart={captureHistory} onChange={(zoom) => updateSelected({ zoom })} />
-      </InspectorSection>
+      </InspectorSection>}
 
       {additionalParameters.length > 0 && (
         <InspectorSection title="Fixture Channels" open>
@@ -281,4 +286,11 @@ function Fader({
       <output>{Math.round(value * 100)}</output>
     </label>
   );
+}
+
+function fixtureKindLabel(kind: "dimmer" | "par" | "moving-head" | "strobe"): string {
+  if (kind === "moving-head") return "MOVING HEAD";
+  if (kind === "par") return "PAR";
+  if (kind === "strobe") return "STROBE";
+  return "DIMMER";
 }

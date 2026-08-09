@@ -114,7 +114,7 @@ export function LivePanel() {
 
   return (
     <section className={`live-control-panel ${editing ? "is-editing" : ""}`}>
-      <header className="live-layout-header"><div><strong>LIVE PAGE {livePage}</strong><button disabled={livePage <= 1} onClick={() => setPage(livePage - 1)}>‹</button><button disabled={livePage >= maxPage} onClick={() => setPage(livePage + 1)}>›</button></div><div className="live-panel-mode"><span>Design</span><strong>Live</strong></div><div className="live-edit-controls"><button className={editing ? "is-active" : ""} onClick={() => setEditing(true)}>✎ Edit</button><button className={!editing ? "is-active" : ""} onClick={() => { setEditing(false); setSelectedId(undefined); }}>Done</button><span title={editing ? "Layout unlocked" : "Layout locked"}>{editing ? "⌗" : "🔒"}</span></div></header>
+      <header className="live-layout-header"><div><strong>LIVE PAGE {livePage}</strong><button disabled={livePage <= 1} onClick={() => setPage(livePage - 1)}>‹</button><button disabled={livePage >= maxPage} onClick={() => setPage(livePage + 1)}>›</button></div><div className="live-panel-mode"><span>Design</span><strong>Live</strong></div><div className="live-edit-controls">{editing ? <button className="is-active" onClick={() => { setEditing(false); setSelectedId(undefined); }}>Done</button> : <button onClick={() => setEditing(true)}>✎ Edit</button>}<span title={editing ? "Layout unlocked" : "Layout locked"}>{editing ? "⌗" : "🔒"}</span></div></header>
       <div className="live-panel-body">
         <div
           className={`live-layout-grid ${editing ? "is-editing" : ""} ${dragOver ? "is-drag-over" : ""}`}
