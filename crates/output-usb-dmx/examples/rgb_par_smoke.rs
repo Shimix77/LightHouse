@@ -10,9 +10,12 @@ use lighthouse_output_usb_dmx::OpenDmxOutput;
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(25);
 const LOOK_DURATION: Duration = Duration::from_millis(900);
+const RAMP_PEAK_HOLD: Duration = Duration::from_millis(500);
+const RAMP_STEPS: u16 = 80;
 const WHITE_ONLY_DURATION: Duration = Duration::from_secs(2);
 const BLACKOUT_DURATION: Duration = Duration::from_millis(450);
 const CONFIRMATION: &str = "--confirm-live-dmx";
+const RAMP: &str = "--ramp";
 const RGB_ONLY: &str = "--rgb-only";
 const WHITE_ONLY: &str = "--white-only";
 
@@ -33,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let test_mode = match arguments.next().as_deref() {
         None => TestMode::Complete,
+        Some(RAMP) => TestMode::Ramp,
         Some(RGB_ONLY) => TestMode::RgbOnly,
         Some(WHITE_ONLY) => TestMode::WhiteOnly,
         Some(_) => return Err("unknown RGB PAR smoke-test mode".into()),
@@ -50,7 +54,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!(
         "LIVE RGB test on {device_path}; CH1=R CH2=G CH3=B CH4=0, maximum={maximum_percent}%"
     );
-    let test_result = if test_mode == TestMode::WhiteOnly {
+    let test_result = if test_mode == TestMode::Ramp {
+        run_ramps(&mut output, universe_id, maximum)
+    } else if test_mode == TestMode::WhiteOnly {
         eprintln!("LOOK: BLACKOUT");
         send_look(&mut output, universe_id, [0, 0, 0, 0], BLACKOUT_DURATION)?;
         eprintln!("LOOK: WHITE MAX ([{maximum}, {maximum}, {maximum}, 0])");
@@ -96,8 +102,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TestMode {
     Complete,
+    Ramp,
     RgbOnly,
     WhiteOnly,
+}
+
+fn run_ramps(
+    output: &mut OpenDmxOutput,
+    universe_id: UniverseId,
+    maximum: u8,
+) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("LOOK: BLACKOUT");
+    send_look(output, universe_id, [0, 0, 0, 0], BLACKOUT_DURATION)?;
+    for (label, emitters) in [
+        ("RED RAMP", [true, false, false]),
+        ("GREEN RAMP", [false, true, false]),
+        ("BLUE RAMP", [false, false, true]),
+        ("WHITE RAMP", [true, true, true]),
+    ] {
+        eprintln!("LOOK: {label} 0 -> {maximum} -> 0");
+        for step in 0..=RAMP_STEPS {
+            send_ramp_step(output, universe_id, emitters, maximum, step)?;
+        }
+        send_ramp_step(output, universe_id, emitters, maximum, RAMP_STEPS)?;
+        thread::sleep(RAMP_PEAK_HOLD);
+        for step in (0..RAMP_STEPS).rev() {
+            send_ramp_step(output, universe_id, emitters, maximum, step)?;
+        }
+        eprintln!("LOOK: BLACKOUT");
+        send_look(output, universe_id, [0, 0, 0, 0], BLACKOUT_DURATION)?;
+    }
+    Ok(())
+}
+
+fn send_ramp_step(
+    output: &mut OpenDmxOutput,
+    universe_id: UniverseId,
+    emitters: [bool; 3],
+    maximum: u8,
+    step: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let value = ((u32::from(maximum) * u32::from(step)) / u32::from(RAMP_STEPS)) as u8;
+    let channels = [
+        if emitters[0] { value } else { 0 },
+        if emitters[1] { value } else { 0 },
+        if emitters[2] { value } else { 0 },
+        0,
+    ];
+    send_look(output, universe_id, channels, FRAME_INTERVAL)
 }
 
 fn run_sequence<const N: usize>(
