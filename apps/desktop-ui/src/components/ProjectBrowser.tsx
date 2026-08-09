@@ -3,6 +3,7 @@ import { useState } from "react";
 import { hasNativeEngine } from "../services/engineClient";
 import { useShowStore } from "../store/showStore";
 import { UserGuideDialog } from "./UserGuideDialog";
+import { MacWindowControls } from "./MacWindowControls";
 
 interface ProjectBrowserProps {
   onOpenWorkspace: () => void;
@@ -45,7 +46,7 @@ export function ProjectBrowser({ onOpenWorkspace, onStartSetup, onOpenFixtureLib
 
   return (
     <main className="project-browser-shell">
-      <div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div>
+      <MacWindowControls />
       <section className="project-browser-hero">
         <div className="project-browser-brand">
           <div className="lighthouse-app-icon" aria-hidden="true"><span /><b /></div>

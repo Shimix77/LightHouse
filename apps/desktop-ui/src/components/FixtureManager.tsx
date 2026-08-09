@@ -4,6 +4,7 @@ import type { CSSProperties, DragEvent } from "react";
 import { useShowStore } from "../store/showStore";
 import type { FixtureDefinitionSummary, LayoutFixture } from "../types/show";
 import { CustomFixtureDialog } from "./ObjectPanel";
+import { MacWindowControls } from "./MacWindowControls";
 
 interface FixtureManagerProps {
   onDone: () => void;
@@ -138,7 +139,7 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
 
   return (
     <section className={`fixture-manager-screen ${embedded ? "is-embedded" : ""}`}>
-      {!embedded && <header className="fixture-manager-titlebar"><div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button title="Open another project" onClick={() => { void openProject(); }}>↗</button><button title="Save project copy" onClick={() => { void saveProjectAs(); }}>⇩</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>＋</button></div></header>}
+      {!embedded && <header className="fixture-manager-titlebar"><MacWindowControls /><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button title="Open another project" onClick={() => { void openProject(); }}>↗</button><button title="Save project copy" onClick={() => { void saveProjectAs(); }}>⇩</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>＋</button></div></header>}
       <div className="fixture-manager-body">
         <aside className="fixture-library-pane">
           <div className="fixture-library-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fixture Library" /><button className={selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "is-active" : ""} title="Favorite selected profile" onClick={toggleFavorite}>{selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "★" : "☆"}</button><button className={sourceFilter !== "all" ? "is-active" : ""} title={`Source filter: ${sourceFilter}`} onClick={cycleSourceFilter}>▽</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>•••</button></div>

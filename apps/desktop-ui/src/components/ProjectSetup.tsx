@@ -4,6 +4,7 @@ import { hasNativeEngine, listUsbDmxDevices } from "../services/engineClient";
 import type { UsbDmxDevice } from "../services/engineClient";
 import { useShowStore } from "../store/showStore";
 import { FixtureManager } from "./FixtureManager";
+import { MacWindowControls } from "./MacWindowControls";
 
 const steps = ["Output", "Fixtures & Patch", "Stage Layout", "Groups", "Finish"] as const;
 type OutputKind = "none" | "artnet" | "usb";
@@ -87,7 +88,7 @@ export function ProjectSetup({ onDone, onCancel }: ProjectSetupProps) {
 
   return (
     <main className="setup-shell">
-      <header className="setup-titlebar"><div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div><button onClick={onCancel}>Cancel</button><div><small>PROJECT SETUP</small><strong>{projectName}</strong></div><span /></header>
+      <header className="setup-titlebar"><MacWindowControls /><button onClick={onCancel}>Cancel</button><div><small>PROJECT SETUP</small><strong>{projectName}</strong></div><span /></header>
       <SetupProgress step={step} />
 
       <section className="setup-content">

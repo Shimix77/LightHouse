@@ -334,7 +334,12 @@ impl Drop for DesktopBackend {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "type", content = "data")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "type",
+    content = "data"
+)]
 pub enum UiEngineCommand {
     SetFixtureParameter {
         fixture_id: String,
@@ -409,7 +414,12 @@ pub enum UiEngineCommand {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "type", content = "data")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "type",
+    content = "data"
+)]
 pub enum UiProjectCommand {
     UpdateLayouts {
         layouts: Vec<UiLayoutUpdate>,
@@ -3430,6 +3440,56 @@ mod tests {
         assert_eq!(bundle.project.scenes.len(), 4);
         assert_eq!(bundle.project.effects.len(), 4);
         assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn project_command_accepts_the_frontend_camel_case_contract() {
+        let command: UiProjectCommand = serde_json::from_value(serde_json::json!({
+            "type": "putUniverseOutput",
+            "data": {
+                "universe": 1,
+                "name": "Universe 1",
+                "enabled": false,
+                "protocol": "usbDmx",
+                "portAddress": 0,
+                "destination": "127.0.0.1:6454",
+                "interface": null,
+                "broadcast": false,
+                "devicePath": "/dev/cu.usbserial-AB0KT9HX"
+            }
+        }))
+        .expect("the native project command must match the TypeScript payload");
+
+        assert!(matches!(
+            command,
+            UiProjectCommand::PutUniverseOutput {
+                port_address: 0,
+                device_path: Some(path),
+                ..
+            } if path == "/dev/cu.usbserial-AB0KT9HX"
+        ));
+    }
+
+    #[test]
+    fn engine_command_accepts_the_frontend_camel_case_contract() {
+        let command: UiEngineCommand = serde_json::from_value(serde_json::json!({
+            "type": "setFixtureParameter",
+            "data": {
+                "fixtureId": "101",
+                "parameterId": "intensity",
+                "value": 0.75
+            }
+        }))
+        .expect("the native engine command must match the TypeScript payload");
+
+        assert!(matches!(
+            command,
+            UiEngineCommand::SetFixtureParameter {
+                fixture_id,
+                parameter_id,
+                value: 0.75,
+            } if fixture_id == "101" && parameter_id == "intensity"
+        ));
     }
 
     #[test]

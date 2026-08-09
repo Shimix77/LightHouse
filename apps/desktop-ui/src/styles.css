@@ -48,15 +48,32 @@ body,
   gap: 9px;
 }
 
+.mac-traffic button {
+  display: grid;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: default;
+}
+
+.mac-traffic button:focus-visible {
+  outline: 2px solid rgba(10, 132, 255, .9);
+  outline-offset: 3px;
+}
+
 .mac-traffic i {
+  display: block;
   width: 13px;
   height: 13px;
   border-radius: 50%;
   background: #ff5f57;
 }
 
-.mac-traffic i:nth-child(2) { background: #febc2e; }
-.mac-traffic i:nth-child(3) { background: #28c840; }
+.mac-traffic .mac-minimize i { background: #febc2e; }
+.mac-traffic .mac-zoom i { background: #28c840; }
 
 .project-browser-shell {
   min-height: 100%;

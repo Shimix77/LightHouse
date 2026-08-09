@@ -4,6 +4,7 @@ import { openLiveDisplay } from "../services/engineClient";
 import { useShowStore } from "../store/showStore";
 import { OutputSettingsDialog } from "./OutputSettingsDialog";
 import { UserGuideDialog } from "./UserGuideDialog";
+import { MacWindowControls } from "./MacWindowControls";
 
 interface WorkspaceTopBarProps {
   onShowProjects: () => void;
@@ -43,7 +44,7 @@ export function WorkspaceTopBar({ onShowProjects, onShowSetup, onManageFixtures 
 
   return (
     <header className="workspace-topbar">
-      <div className="mac-traffic" aria-hidden="true"><i /><i /><i /></div>
+      <MacWindowControls />
       <div className="workspace-project-menu" ref={menuRef}>
         <button className="workspace-project-button" onClick={() => setMenuOpen((value) => !value)}><span className="mini-lighthouse">⌂</span><div><strong>{projectName}</strong><small><i className={`status-dot ${connected ? "is-good" : "is-error"}`} /> {connected ? outputLabel(projectPath) : "Engine reconnecting"}</small></div><b>⌄</b></button>
         {menuOpen && <div className="workspace-project-popover"><small title={projectPath}>{projectPath || "Preview project"}</small><button onClick={() => { setMenuOpen(false); onShowProjects(); }}>▦ Project Browser</button><button onClick={() => { setMenuOpen(false); onShowSetup(); }}>✓ Project Setup…</button><button onClick={() => { setMenuOpen(false); onManageFixtures(); }}>◉ Manage Fixtures…</button><hr /><button onClick={() => { setMenuOpen(false); void openProject(); }}>↗ Open Project…</button><button onClick={() => { setMenuOpen(false); void saveProjectAs(); }}>⇩ Save As…</button></div>}
