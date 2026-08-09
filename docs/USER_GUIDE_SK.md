@@ -65,6 +65,12 @@ Ak profil nenájdete, otvorte `Custom Profiles`. Podľa manuálu svetla vytvorte
 - pan/tilt → `position.pan`, `position.tilt`,
 - zoom → `beam.zoom`.
 
+Custom Fixture Editor má štyri kroky: typ zariadenia, názov a vlastnosti lúča, počet kanálov a detailnú definíciu kanálov. Každý fyzický kanál môže mať viac pomenovaných DMX rozsahov. Rozsahy musia bez medzier a prekryvov pokryť presne `0–255`; inak sa profil nedá uložiť.
+
+`8-bit` parameter používa jeden DMX kanál a má 256 krokov. `16-bit` parameter používa dvojicu `coarse` + `fine` a má 65 536 krokov, čo je dôležité najmä pre plynulý Pan/Tilt. V editore ich vytvoríte ručne, napríklad priradením `Pan` ku kanálu 1 a `Pan Fine` ku kanálu 2. LightHouse dvojicu spojí do jedného logického parametra.
+
+Pri pixel baroch zadajte ku kanálom číslo `Cell / Pixel`; kompletná RGB trojica sa automaticky sprístupní ako virtuálna farba. Uložený a patchnutý custom profil možno znovu otvoriť dvojklikom. Jeho fyzický tester sa aktivuje až po samostatnom bezpečnostnom potvrdení a pred aktiváciou nastaví dostupné intenzity na nulu.
+
 ### 3. Stage Layout
 
 Vyberte `Front View` alebo `Top View`. Voliteľne pridajte PNG/JPG obrázok pôdorysu; aplikácia ho použije ako zamknuté pozadie. Orientáciu môžete neskôr prepínať aj priamo v pracovnom priestore.

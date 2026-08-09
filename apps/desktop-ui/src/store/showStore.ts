@@ -87,7 +87,9 @@ interface ShowUiState {
   captureFixtureHistory: () => void;
   moveFixtures: (ids: string[], deltaX: number, deltaY: number) => void;
   updateSelectedFixtures: (update: Partial<LayoutFixture>) => void;
+  updateSelectedFixtureAxes: (invertPan: boolean, invertTilt: boolean) => void;
   setSelectedParameter: (parameterId: string, value: number) => void;
+  testFixtureParameter: (fixtureId: string, parameterId: string, value: number) => void;
   moveStageObjects: (ids: string[], deltaX: number, deltaY: number) => void;
   updateSelectedStageObjects: (update: Partial<StageObject>) => void;
   setGrandMaster: (value: number) => void;
@@ -115,7 +117,7 @@ interface ShowUiState {
   patchFixture: (fixtureId: string, universe: number, address: number) => void;
   addFixture: (definitionId: string, modeId: string, name: string) => void;
   addFixturesAtPatch: (definitionId: string, modeId: string, name: string, quantity: number, universe: number, address: number) => Promise<boolean>;
-  putCustomFixture: (fixture: CustomFixtureInput) => Promise<string | null>;
+  putCustomFixture: (fixture: CustomFixtureInput, definitionId?: string) => Promise<string | null>;
   newProject: () => Promise<void>;
   openProject: () => Promise<void>;
   openRecentProject: (path: string) => Promise<void>;
@@ -363,7 +365,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       persistLayouts(ids);
     },
     updateSelectedFixtures: (update) => {
-      const selectedIds = get().selectedFixtureIds;
+      const state = get();
+      const selectedIds = state.selectedFixtureIds;
       set((state) => ({
         fixtures: state.fixtures.map((fixtureItem) =>
           selectedIds.includes(fixtureItem.id)
@@ -372,11 +375,33 @@ export const useShowStore = create<ShowUiState>((set, get) => {
             : fixtureItem,
         ),
       }));
-      for (const fixtureId of selectedIds) dispatchFixtureUpdate(fixtureId, update, dispatch);
+      for (const fixtureId of selectedIds) {
+        const fixtureItem = state.fixtures.find((fixture) => fixture.id === fixtureId);
+        const parameterIds = fixtureItem
+          ? state.fixtureDefinitions
+              .find((definition) => definition.id === fixtureItem.definitionId)
+              ?.modes.find((mode) => mode.id === fixtureItem.modeId)
+              ?.parameters.map((parameter) => parameter.id)
+          : undefined;
+        dispatchFixtureUpdate(fixtureId, update, dispatch, parameterIds);
+      }
       if (["x", "y", "width", "height", "rotation", "locked", "hidden", "layer"]
         .some((property) => property in update)) {
         persistLayouts(selectedIds);
       }
+    },
+    updateSelectedFixtureAxes: (invertPan, invertTilt) => {
+      const fixtureIds = get().selectedFixtureIds;
+      if (fixtureIds.length === 0) return;
+      set((state) => ({
+        fixtures: state.fixtures.map((fixtureItem) => fixtureIds.includes(fixtureItem.id)
+          ? { ...fixtureItem, invertPan, invertTilt }
+          : fixtureItem),
+      }));
+      void mutateProject({
+        type: "updateFixtureSettings",
+        data: { fixtureIds, invertPan, invertTilt },
+      });
     },
     setSelectedParameter: (parameterId, value) => {
       const normalized = clamp(value);
@@ -392,6 +417,18 @@ export const useShowStore = create<ShowUiState>((set, get) => {
           `${fixtureId}:${parameterId}`,
         );
       }
+    },
+    testFixtureParameter: (fixtureId, parameterId, value) => {
+      const normalized = clamp(value);
+      set((state) => ({
+        fixtures: state.fixtures.map((fixtureItem) => fixtureItem.id === fixtureId
+          ? { ...fixtureItem, parameters: { ...fixtureItem.parameters, [parameterId]: normalized } }
+          : fixtureItem),
+      }));
+      dispatch(
+        { type: "setFixtureParameter", data: { fixtureId, parameterId, value: normalized } },
+        `fixture-test:${fixtureId}:${parameterId}`,
+      );
     },
     moveStageObjects: (ids, deltaX, deltaY) => {
       set((state) => ({
@@ -536,7 +573,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         undoStack: state.undoStack.slice(0, -1),
         redoStack: [...state.redoStack, snapshot(state.fixtures, state.stageObjects)],
       });
-      syncFixtureParameters(previous.fixtures, dispatch);
+      syncFixtureParameters(previous.fixtures, state.fixtureDefinitions, dispatch);
       persistLayouts(previous.fixtures.map((fixtureItem) => fixtureItem.id));
       persistStageObjects(previous.stageObjects.map((stageObject) => stageObject.id));
     },
@@ -550,7 +587,7 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         undoStack: [...state.undoStack, snapshot(state.fixtures, state.stageObjects)],
         redoStack: state.redoStack.slice(0, -1),
       });
-      syncFixtureParameters(next.fixtures, dispatch);
+      syncFixtureParameters(next.fixtures, state.fixtureDefinitions, dispatch);
       persistLayouts(next.fixtures.map((fixtureItem) => fixtureItem.id));
       persistStageObjects(next.stageObjects.map((stageObject) => stageObject.id));
     },
@@ -671,8 +708,8 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         type: "addFixturesAtPatch",
         data: { definitionId, modeId, name, quantity, universe, address },
       }),
-    putCustomFixture: async (fixture) => {
-      const definitionId = `custom.${crypto.randomUUID()}`;
+    putCustomFixture: async (fixture, existingDefinitionId) => {
+      const definitionId = existingDefinitionId ?? `custom.${crypto.randomUUID()}`;
       const saved = await mutateProject({
         type: "putCustomFixtureDefinition",
         data: { ...fixture, definitionId },
@@ -903,6 +940,7 @@ function dispatchFixtureUpdate(
   fixtureId: string,
   update: Partial<LayoutFixture>,
   dispatch: EngineDispatch,
+  availableParameterIds?: string[],
 ): void {
   for (const [property, parameterId] of [
     ["intensity", "intensity"],
@@ -912,33 +950,51 @@ function dispatchFixtureUpdate(
   ] as const) {
     const value = update[property];
     if (value !== undefined) {
-      dispatch(
-        { type: "setFixtureParameter", data: { fixtureId, parameterId, value } },
-        `${fixtureId}:${parameterId}`,
+      const targets = availableParameterIds?.filter((candidate) =>
+        candidate === parameterId || candidate.startsWith(`${parameterId}.pixel-`)
       );
+      for (const target of targets && targets.length > 0 ? targets : [parameterId]) {
+        dispatch(
+          { type: "setFixtureParameter", data: { fixtureId, parameterId: target, value } },
+          `${fixtureId}:${target}`,
+        );
+      }
     }
   }
   if (update.color) {
     const [red, green, blue] = hexChannels(update.color);
     for (const [channel, value] of [["red", red], ["green", green], ["blue", blue]] as const) {
-      const parameterId = `color.${channel}`;
-      dispatch(
-        { type: "setFixtureParameter", data: { fixtureId, parameterId, value } },
-        `${fixtureId}:${parameterId}`,
+      const prefix = `color.${channel}`;
+      const targets = availableParameterIds?.filter((parameterId) =>
+        parameterId === prefix || parameterId.startsWith(`${prefix}.pixel-`)
       );
+      for (const parameterId of targets && targets.length > 0 ? targets : [prefix]) {
+        dispatch(
+          { type: "setFixtureParameter", data: { fixtureId, parameterId, value } },
+          `${fixtureId}:${parameterId}`,
+        );
+      }
     }
   }
 }
 
-function syncFixtureParameters(fixtures: LayoutFixture[], dispatch: EngineDispatch): void {
+function syncFixtureParameters(
+  fixtures: LayoutFixture[],
+  definitions: FixtureDefinitionSummary[],
+  dispatch: EngineDispatch,
+): void {
   for (const fixtureItem of fixtures) {
+    const parameterIds = definitions
+      .find((definition) => definition.id === fixtureItem.definitionId)
+      ?.modes.find((mode) => mode.id === fixtureItem.modeId)
+      ?.parameters.map((parameter) => parameter.id);
     dispatchFixtureUpdate(fixtureItem.id, {
       intensity: fixtureItem.intensity,
       color: fixtureItem.color,
       pan: fixtureItem.pan,
       tilt: fixtureItem.tilt,
       zoom: fixtureItem.zoom,
-    }, dispatch);
+    }, dispatch, parameterIds);
     for (const [parameterId, value] of Object.entries(fixtureItem.parameters)) {
       dispatch(
         { type: "setFixtureParameter", data: { fixtureId: fixtureItem.id, parameterId, value } },
@@ -954,23 +1010,40 @@ function applyFixtureValues(
 ): LayoutFixture {
   if (!parameters) return fixtureItem;
   const current = hexChannels(fixtureItem.color);
-  const hasColor = ["color.red", "color.green", "color.blue"].some((id) => parameters[id] !== undefined);
+  const hasColor = Object.keys(parameters).some((id) =>
+    ["color.red", "color.green", "color.blue"].some((prefix) =>
+      id === prefix || id.startsWith(`${prefix}.pixel-`)
+    )
+  );
   const color = hasColor
     ? rgbHex(
-        parameters["color.red"] ?? current[0],
-        parameters["color.green"] ?? current[1],
-        parameters["color.blue"] ?? current[2],
+        parameterOrPixelAverage(parameters, "color.red", current[0]),
+        parameterOrPixelAverage(parameters, "color.green", current[1]),
+        parameterOrPixelAverage(parameters, "color.blue", current[2]),
       )
     : fixtureItem.color;
   return {
     ...fixtureItem,
-    intensity: parameters.intensity ?? fixtureItem.intensity,
+    intensity: parameterOrPixelAverage(parameters, "intensity", fixtureItem.intensity),
     color,
-    pan: parameters["position.pan"] ?? fixtureItem.pan,
-    tilt: parameters["position.tilt"] ?? fixtureItem.tilt,
-    zoom: parameters["beam.zoom"] ?? fixtureItem.zoom,
+    pan: parameterOrPixelAverage(parameters, "position.pan", fixtureItem.pan),
+    tilt: parameterOrPixelAverage(parameters, "position.tilt", fixtureItem.tilt),
+    zoom: parameterOrPixelAverage(parameters, "beam.zoom", fixtureItem.zoom),
     parameters: { ...fixtureItem.parameters, ...parameters },
   };
+}
+
+function parameterOrPixelAverage(
+  parameters: Record<string, number>,
+  prefix: string,
+  fallback: number,
+): number {
+  const values = Object.entries(parameters)
+    .filter(([id]) => id === prefix || id.startsWith(`${prefix}.pixel-`))
+    .map(([, value]) => value);
+  return values.length > 0
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : fallback;
 }
 
 function hexChannels(color: string): [number, number, number] {
@@ -1028,6 +1101,8 @@ function fixture(
     pan: 0.5,
     tilt: 0.5,
     zoom: 0.45,
+    invertPan: false,
+    invertTilt: false,
     parameters: {},
     locked: false,
     hidden: false,

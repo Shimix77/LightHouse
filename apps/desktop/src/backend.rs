@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
@@ -26,7 +26,8 @@ use lighthouse_effects::{
 };
 use lighthouse_fixture_library::FixtureLibrary;
 use lighthouse_fixture_model::{
-    DmxBinding, FixtureDefinition, FixtureMode, ParameterCapability, ParameterDefinition,
+    BeamKind, DmxBinding, DmxChannelDefinition, DmxRangeDefinition, FixtureDefinition, FixtureMode,
+    FixtureProfileMetadata, FixtureType, ParameterCapability, ParameterDefinition,
 };
 use lighthouse_ipc::{
     ClientMessage, EngineTelemetry, IPC_CONTRACT_VERSION, ServerMessage, read_message,
@@ -424,6 +425,11 @@ pub enum UiProjectCommand {
     UpdateLayouts {
         layouts: Vec<UiLayoutUpdate>,
     },
+    UpdateFixtureSettings {
+        fixture_ids: Vec<String>,
+        invert_pan: bool,
+        invert_tilt: bool,
+    },
     PatchFixture {
         fixture_id: String,
         universe: u32,
@@ -448,6 +454,11 @@ pub enum UiProjectCommand {
         definition_id: String,
         manufacturer: String,
         model: String,
+        fixture_type: String,
+        icon: String,
+        beam_kind: String,
+        beam_angle_min_degrees: Option<f64>,
+        beam_angle_max_degrees: Option<f64>,
         mode_id: String,
         mode_name: String,
         footprint: u16,
@@ -599,13 +610,24 @@ pub struct UiStageObjectUpdate {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiCustomFixtureChannel {
+    channel: u16,
     name: String,
-    parameter_id: String,
-    capability: String,
-    coarse_channel: u16,
-    fine_channel: Option<u16>,
-    default_value: f64,
-    invert: bool,
+    property: String,
+    ranges: Vec<UiCustomFixtureRange>,
+    pixel: Option<u16>,
+    hazardous: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiCustomFixtureRange {
+    start: u8,
+    end: u8,
+    label: String,
+    semantic_min: f64,
+    semantic_max: f64,
+    unit: String,
+    hazardous: bool,
 }
 
 impl UiEngineCommand {
@@ -852,6 +874,8 @@ struct UiFixtureView {
     pan: f64,
     tilt: f64,
     zoom: f64,
+    invert_pan: bool,
+    invert_tilt: bool,
     parameters: BTreeMap<String, f64>,
     locked: bool,
     hidden: bool,
@@ -865,6 +889,12 @@ struct UiFixtureDefinitionView {
     manufacturer: String,
     model: String,
     source: String,
+    fixture_type: FixtureType,
+    icon: String,
+    beam_kind: BeamKind,
+    beam_angle_min_degrees: Option<f64>,
+    beam_angle_max_degrees: Option<f64>,
+    virtual_color: bool,
     modes: Vec<UiFixtureModeView>,
 }
 
@@ -875,6 +905,7 @@ struct UiFixtureModeView {
     name: String,
     footprint: u16,
     parameters: Vec<UiFixtureParameterView>,
+    channels: Vec<UiFixtureChannelView>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -888,6 +919,31 @@ struct UiFixtureParameterView {
     coarse_channel: u16,
     fine_channel: Option<u16>,
     invert: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiFixtureChannelView {
+    channel: u16,
+    name: String,
+    property: String,
+    parameter_id: Option<String>,
+    capability: String,
+    ranges: Vec<UiFixtureRangeView>,
+    pixel: Option<u16>,
+    hazardous: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiFixtureRangeView {
+    start: u8,
+    end: u8,
+    label: String,
+    semantic_min: f64,
+    semantic_max: f64,
+    unit: String,
+    hazardous: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1039,6 +1095,8 @@ fn project_view(
                 pan: parameter(values, "position.pan", 0.5),
                 tilt: parameter(values, "position.tilt", 0.5),
                 zoom: parameter(values, "beam.zoom", 0.5),
+                invert_pan: fixture.invert_pan,
+                invert_tilt: fixture.invert_tilt,
                 parameters: values.map_or_else(BTreeMap::new, |values| {
                     values
                         .iter()
@@ -1183,6 +1241,12 @@ fn project_view(
                 "generic"
             }
             .into(),
+            fixture_type: definition.metadata.fixture_type,
+            icon: definition.metadata.icon.clone(),
+            beam_kind: definition.metadata.beam_kind,
+            beam_angle_min_degrees: definition.metadata.beam_angle_min_degrees,
+            beam_angle_max_degrees: definition.metadata.beam_angle_max_degrees,
+            virtual_color: definition.metadata.virtual_color,
             modes: definition
                 .modes
                 .iter()
@@ -1218,6 +1282,35 @@ fn project_view(
                                 fine_channel,
                                 invert: parameter.invert,
                             }
+                        })
+                        .collect(),
+                    channels: mode
+                        .channels
+                        .iter()
+                        .map(|channel| UiFixtureChannelView {
+                            channel: channel.offset.saturating_add(1),
+                            name: channel.name.clone(),
+                            property: channel.property.clone(),
+                            parameter_id: channel
+                                .parameter_id
+                                .as_ref()
+                                .map(|id| id.as_str().into()),
+                            capability: parameter_capability_name(&channel.capability).into(),
+                            ranges: channel
+                                .ranges
+                                .iter()
+                                .map(|range| UiFixtureRangeView {
+                                    start: range.start,
+                                    end: range.end,
+                                    label: range.label.clone(),
+                                    semantic_min: range.semantic_min,
+                                    semantic_max: range.semantic_max,
+                                    unit: range.unit.clone(),
+                                    hazardous: range.hazardous,
+                                })
+                                .collect(),
+                            pixel: channel.pixel,
+                            hazardous: channel.hazardous,
                         })
                         .collect(),
                 })
@@ -1444,9 +1537,22 @@ fn parameter(
     id: &str,
     default: f64,
 ) -> f64 {
-    values
-        .and_then(|values| values.get(&ParameterId::new(id)))
-        .map_or(default, |value| value.get())
+    let Some(values) = values else {
+        return default;
+    };
+    let pixel_prefix = format!("{id}.pixel-");
+    let matching: Vec<_> = values
+        .iter()
+        .filter(|(parameter_id, _)| {
+            parameter_id.as_str() == id || parameter_id.as_str().starts_with(&pixel_prefix)
+        })
+        .map(|(_, value)| value.get())
+        .collect();
+    if matching.is_empty() {
+        default
+    } else {
+        matching.iter().sum::<f64>() / matching.len() as f64
+    }
 }
 
 fn rgb_hex(values: Option<&BTreeMap<ParameterId, NormalizedValue>>) -> String {
@@ -1752,6 +1858,26 @@ fn apply_project_command(
             }
             Ok(false)
         }
+        UiProjectCommand::UpdateFixtureSettings {
+            fixture_ids,
+            invert_pan,
+            invert_tilt,
+        } => {
+            let fixture_ids = parse_fixture_ids(&fixture_ids)?;
+            for fixture_id in fixture_ids {
+                let fixture = bundle
+                    .project
+                    .fixtures
+                    .iter_mut()
+                    .find(|fixture| fixture.id == fixture_id)
+                    .ok_or_else(|| {
+                        BackendError::InvalidCommand("fixture settings target was not found".into())
+                    })?;
+                fixture.invert_pan = invert_pan;
+                fixture.invert_tilt = invert_tilt;
+            }
+            Ok(true)
+        }
         UiProjectCommand::PatchFixture {
             fixture_id,
             universe,
@@ -1958,20 +2084,19 @@ fn apply_project_command(
             definition_id,
             manufacturer,
             model,
+            fixture_type,
+            icon,
+            beam_kind,
+            beam_angle_min_degrees,
+            beam_angle_max_degrees,
             mode_id,
             mode_name,
             footprint,
             channels,
         } => {
-            if !definition_id.starts_with("custom.")
-                || definition_id.len() > 120
-                || bundle
-                    .fixture_definitions
-                    .iter()
-                    .any(|definition| definition.id == definition_id)
-            {
+            if !definition_id.starts_with("custom.") || definition_id.len() > 120 {
                 return Err(BackendError::InvalidCommand(
-                    "custom fixture ID is invalid or already exists".into(),
+                    "custom fixture ID is invalid".into(),
                 ));
             }
             if model.trim().is_empty() || mode_name.trim().is_empty() || channels.is_empty() {
@@ -1979,27 +2104,65 @@ fn apply_project_command(
                     "custom fixture needs a model, mode and at least one channel".into(),
                 ));
             }
-            let parameters = channels
-                .into_iter()
-                .map(custom_parameter)
-                .collect::<Result<Vec<_>, _>>()?;
+            let (parameters, channel_definitions, virtual_color) =
+                custom_fixture_channels(channels, footprint)?;
+            let mode_id = non_empty_name(mode_id, "custom-mode");
             let definition = FixtureDefinition {
-                id: definition_id,
+                id: definition_id.clone(),
                 revision: "custom-1".into(),
                 manufacturer: non_empty_name(manufacturer, "Custom"),
                 model: model.trim().into(),
+                metadata: FixtureProfileMetadata {
+                    fixture_type: parse_fixture_type(&fixture_type)?,
+                    icon: non_empty_name(icon, "fixture"),
+                    beam_kind: parse_beam_kind(&beam_kind)?,
+                    beam_angle_min_degrees,
+                    beam_angle_max_degrees,
+                    virtual_color,
+                },
                 modes: vec![FixtureMode {
-                    id: non_empty_name(mode_id, "custom-mode"),
+                    id: mode_id.clone(),
                     name: mode_name.trim().into(),
                     footprint,
                     parameters,
+                    channels: channel_definitions,
                 }],
             };
             definition
                 .validate()
                 .map_err(|error| BackendError::InvalidCommand(error.to_string()))?;
-            bundle.fixture_definitions.push(definition);
-            Ok(false)
+            let in_use = bundle
+                .project
+                .fixtures
+                .iter()
+                .any(|fixture| fixture.definition_id == definition_id);
+            for fixture in bundle
+                .project
+                .fixtures
+                .iter_mut()
+                .filter(|fixture| fixture.definition_id == definition_id)
+            {
+                fixture.definition_revision = "custom-1".into();
+                fixture.mode_id.clone_from(&mode_id);
+                if let Some(patch) = bundle
+                    .project
+                    .patch
+                    .iter_mut()
+                    .find(|patch| patch.fixture_id == fixture.id)
+                {
+                    patch.footprint = footprint;
+                }
+            }
+            if let Some(existing) = bundle
+                .fixture_definitions
+                .iter_mut()
+                .find(|existing| existing.id == definition_id)
+            {
+                *existing = definition;
+            } else {
+                bundle.fixture_definitions.push(definition);
+            }
+            Ok(in_use)
         }
         UiProjectCommand::DuplicateFixtures { fixture_ids } => {
             let ids = parse_fixture_ids(&fixture_ids)?;
@@ -2862,45 +3025,86 @@ fn non_empty_name(value: String, fallback: &str) -> String {
     }
 }
 
-fn custom_parameter(channel: UiCustomFixtureChannel) -> Result<ParameterDefinition, BackendError> {
-    let parameter_id = channel.parameter_id.trim();
-    if parameter_id.is_empty() || channel.name.trim().is_empty() {
-        return Err(BackendError::InvalidCommand(
-            "custom channels need a name and logical parameter ID".into(),
-        ));
-    }
-    let coarse_offset = channel
-        .coarse_channel
-        .checked_sub(1)
-        .ok_or_else(|| BackendError::InvalidCommand("DMX channel numbers start at one".into()))?;
-    let fine_offset = channel
-        .fine_channel
-        .map(|channel| {
-            channel.checked_sub(1).ok_or_else(|| {
-                BackendError::InvalidCommand("DMX channel numbers start at one".into())
+fn custom_fixture_channels(
+    channels: Vec<UiCustomFixtureChannel>,
+    footprint: u16,
+) -> Result<(Vec<ParameterDefinition>, Vec<DmxChannelDefinition>, bool), BackendError> {
+    let mut definitions = Vec::with_capacity(channels.len());
+    let mut coarse_offsets = BTreeMap::<String, u16>::new();
+    let mut fine_offsets = BTreeMap::<String, u16>::new();
+    let mut parameter_names = BTreeMap::<String, String>::new();
+    let mut parameter_capabilities = BTreeMap::<String, ParameterCapability>::new();
+    let mut offsets = BTreeSet::new();
+
+    for channel in channels {
+        let offset = channel.channel.checked_sub(1).ok_or_else(|| {
+            BackendError::InvalidCommand("DMX channel numbers start at one".into())
+        })?;
+        if offset >= footprint || !offsets.insert(offset) {
+            return Err(BackendError::InvalidCommand(format!(
+                "DMX channel {} is duplicated or outside the fixture footprint",
+                channel.channel
+            )));
+        }
+        let property = channel.property.trim();
+        let (parameter_id, capability, is_fine) =
+            custom_property(property, channel.pixel, channel.channel)?;
+        if let Some(parameter_id) = parameter_id.as_ref() {
+            let map = if is_fine {
+                &mut fine_offsets
+            } else {
+                &mut coarse_offsets
+            };
+            if map.insert(parameter_id.clone(), offset).is_some() {
+                return Err(BackendError::InvalidCommand(format!(
+                    "logical property {parameter_id} is assigned more than once"
+                )));
+            }
+            if !is_fine {
+                parameter_names.insert(parameter_id.clone(), channel.name.trim().into());
+                parameter_capabilities.insert(parameter_id.clone(), capability.clone());
+            }
+        }
+        let ranges = channel
+            .ranges
+            .into_iter()
+            .map(|range| DmxRangeDefinition {
+                start: range.start,
+                end: range.end,
+                label: range.label.trim().into(),
+                semantic_min: range.semantic_min,
+                semantic_max: range.semantic_max,
+                unit: range.unit.trim().into(),
+                hazardous: range.hazardous,
             })
-        })
-        .transpose()?;
-    let capability = match channel.capability.trim().to_ascii_lowercase().as_str() {
-        "intensity" => ParameterCapability::Intensity,
-        "color" => ParameterCapability::Color,
-        "position" => ParameterCapability::Position,
-        "beam" => ParameterCapability::Beam,
-        "shutter" => ParameterCapability::Shutter,
-        "gobo" => ParameterCapability::Gobo,
-        value => ParameterCapability::Custom(if value.is_empty() {
-            "Custom".into()
-        } else {
-            channel.capability.trim().into()
-        }),
-    };
-    Ok(ParameterDefinition {
-        id: ParameterId::new(parameter_id),
-        name: channel.name.trim().into(),
-        capability,
-        default_value: NormalizedValue::new(channel.default_value)
-            .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
-        binding: fine_offset.map_or(
+            .collect();
+        definitions.push(DmxChannelDefinition {
+            offset,
+            name: channel.name.trim().into(),
+            property: property.into(),
+            parameter_id: parameter_id.map(ParameterId::new),
+            capability,
+            ranges,
+            pixel: channel.pixel,
+            hazardous: channel.hazardous,
+        });
+    }
+
+    for parameter_id in fine_offsets.keys() {
+        if !coarse_offsets.contains_key(parameter_id) {
+            return Err(BackendError::InvalidCommand(format!(
+                "fine channel for {parameter_id} needs a matching coarse channel"
+            )));
+        }
+    }
+    let mut parameters = Vec::with_capacity(coarse_offsets.len());
+    for (parameter_id, coarse_offset) in coarse_offsets {
+        let capability = parameter_capabilities
+            .remove(&parameter_id)
+            .ok_or_else(|| {
+                BackendError::InvalidCommand(format!("missing capability for {parameter_id}"))
+            })?;
+        let binding = fine_offsets.remove(&parameter_id).map_or(
             DmxBinding::EightBit {
                 offset: coarse_offset,
             },
@@ -2908,9 +3112,134 @@ fn custom_parameter(channel: UiCustomFixtureChannel) -> Result<ParameterDefiniti
                 coarse_offset,
                 fine_offset,
             },
+        );
+        parameters.push(ParameterDefinition {
+            id: ParameterId::new(parameter_id.clone()),
+            name: parameter_names
+                .remove(&parameter_id)
+                .unwrap_or_else(|| parameter_id.clone()),
+            capability,
+            default_value: NormalizedValue::ZERO,
+            binding,
+            invert: false,
+        });
+    }
+    parameters.sort_by_key(|parameter| match parameter.binding {
+        DmxBinding::EightBit { offset } => offset,
+        DmxBinding::SixteenBit { coarse_offset, .. } => coarse_offset,
+    });
+    definitions.sort_by_key(|channel| channel.offset);
+    let has_color = |id: &str| {
+        parameters.iter().any(|parameter| {
+            parameter.id.as_str() == id
+                || parameter.id.as_str().starts_with(&format!("{id}.pixel-"))
+        })
+    };
+    let virtual_color =
+        has_color("color.red") && has_color("color.green") && has_color("color.blue");
+    Ok((parameters, definitions, virtual_color))
+}
+
+fn custom_property(
+    property: &str,
+    pixel: Option<u16>,
+    channel: u16,
+) -> Result<(Option<String>, ParameterCapability, bool), BackendError> {
+    if property == "unused" {
+        return Ok((None, ParameterCapability::Custom("Unused".into()), false));
+    }
+    let (base, capability, is_fine) = match property {
+        "intensity" => ("intensity", ParameterCapability::Intensity, false),
+        "intensity.fine" => ("intensity", ParameterCapability::Intensity, true),
+        "position.pan" => ("position.pan", ParameterCapability::Position, false),
+        "position.pan.fine" => ("position.pan", ParameterCapability::Position, true),
+        "position.tilt" => ("position.tilt", ParameterCapability::Position, false),
+        "position.tilt.fine" => ("position.tilt", ParameterCapability::Position, true),
+        "position.speed" => ("position.speed", ParameterCapability::Position, false),
+        "shutter" => ("shutter", ParameterCapability::Shutter, false),
+        "strobe" => ("shutter.strobe-rate", ParameterCapability::Shutter, false),
+        "beam.zoom" => ("beam.zoom", ParameterCapability::Beam, false),
+        "beam.zoom.fine" => ("beam.zoom", ParameterCapability::Beam, true),
+        "beam.focus" => ("beam.focus", ParameterCapability::Beam, false),
+        "beam.focus.fine" => ("beam.focus", ParameterCapability::Beam, true),
+        "beam.iris" => ("beam.iris", ParameterCapability::Beam, false),
+        "beam.iris.fine" => ("beam.iris", ParameterCapability::Beam, true),
+        "beam.frost" => ("beam.frost", ParameterCapability::Beam, false),
+        "gobo.wheel" => ("gobo.wheel", ParameterCapability::Gobo, false),
+        "gobo.index" => ("gobo.index", ParameterCapability::Gobo, false),
+        "gobo.rotation" => ("gobo.rotation", ParameterCapability::Gobo, false),
+        "gobo.shake" => ("gobo.shake", ParameterCapability::Gobo, false),
+        "prism" => ("beam.prism", ParameterCapability::Beam, false),
+        "prism.rotation" => ("beam.prism-rotation", ParameterCapability::Beam, false),
+        "control" => (
+            "control",
+            ParameterCapability::Custom("Control".into()),
+            false,
         ),
-        invert: channel.invert,
-    })
+        "fog.output" => (
+            "fog.output",
+            ParameterCapability::Custom("Fog".into()),
+            false,
+        ),
+        "fog.fan" => ("fog.fan", ParameterCapability::Custom("Fog".into()), false),
+        "effect.macro" => (
+            "effect.macro",
+            ParameterCapability::Custom("Effect".into()),
+            false,
+        ),
+        "custom" => {
+            return Ok((
+                Some(with_pixel(&format!("custom.channel-{channel}"), pixel)),
+                ParameterCapability::Custom("Custom".into()),
+                false,
+            ));
+        }
+        value if value.starts_with("color.") => {
+            let is_fine = value.ends_with(".fine");
+            let base = value.strip_suffix(".fine").unwrap_or(value);
+            return Ok((
+                Some(with_pixel(base, pixel)),
+                ParameterCapability::Color,
+                is_fine,
+            ));
+        }
+        _ => {
+            return Err(BackendError::InvalidCommand(format!(
+                "unsupported custom fixture property {property}"
+            )));
+        }
+    };
+    let parameter_id = with_pixel(base, pixel);
+    Ok((Some(parameter_id), capability, is_fine))
+}
+
+fn with_pixel(base: &str, pixel: Option<u16>) -> String {
+    pixel.map_or_else(|| base.into(), |pixel| format!("{base}.pixel-{pixel}"))
+}
+
+fn parse_fixture_type(value: &str) -> Result<FixtureType, BackendError> {
+    match value {
+        "movingHead" => Ok(FixtureType::MovingHead),
+        "par" => Ok(FixtureType::Par),
+        "spotlight" => Ok(FixtureType::Spotlight),
+        "blinder" => Ok(FixtureType::Blinder),
+        "strobe" => Ok(FixtureType::Strobe),
+        "ledBar" => Ok(FixtureType::LedBar),
+        "bulb" => Ok(FixtureType::Bulb),
+        "fog" => Ok(FixtureType::Fog),
+        "other" => Ok(FixtureType::Other),
+        _ => Err(BackendError::InvalidCommand("unknown fixture type".into())),
+    }
+}
+
+fn parse_beam_kind(value: &str) -> Result<BeamKind, BackendError> {
+    match value {
+        "beam" => Ok(BeamKind::Beam),
+        "spot" => Ok(BeamKind::Spot),
+        "wash" => Ok(BeamKind::Wash),
+        "none" => Ok(BeamKind::None),
+        _ => Err(BackendError::InvalidCommand("unknown beam type".into())),
+    }
 }
 
 fn fixture_layout(
@@ -3433,6 +3762,25 @@ mod tests {
         std::env::temp_dir().join(format!("lighthouse-desktop-test-{}", Uuid::new_v4()))
     }
 
+    fn custom_test_channel(channel: u16, name: &str, property: &str) -> UiCustomFixtureChannel {
+        UiCustomFixtureChannel {
+            channel,
+            name: name.into(),
+            property: property.into(),
+            ranges: vec![UiCustomFixtureRange {
+                start: 0,
+                end: 255,
+                label: name.into(),
+                semantic_min: 0.0,
+                semantic_max: 100.0,
+                unit: "%".into(),
+                hazardous: false,
+            }],
+            pixel: None,
+            hazardous: false,
+        }
+    }
+
     #[test]
     fn demo_project_is_valid_and_ready_for_the_engine() {
         let bundle = demo_project().unwrap();
@@ -3688,37 +4036,19 @@ mod tests {
                 definition_id: "custom.house-head".into(),
                 manufacturer: "House".into(),
                 model: "Test Head".into(),
+                fixture_type: "movingHead".into(),
+                icon: "moving-head".into(),
+                beam_kind: "spot".into(),
+                beam_angle_min_degrees: Some(10.0),
+                beam_angle_max_degrees: Some(25.0),
                 mode_id: "fine".into(),
                 mode_name: "Fine".into(),
                 footprint: 4,
                 channels: vec![
-                    UiCustomFixtureChannel {
-                        name: "Dimmer".into(),
-                        parameter_id: "intensity".into(),
-                        capability: "intensity".into(),
-                        coarse_channel: 1,
-                        fine_channel: None,
-                        default_value: 0.0,
-                        invert: false,
-                    },
-                    UiCustomFixtureChannel {
-                        name: "Pan".into(),
-                        parameter_id: "position.pan".into(),
-                        capability: "position".into(),
-                        coarse_channel: 2,
-                        fine_channel: Some(3),
-                        default_value: 0.5,
-                        invert: true,
-                    },
-                    UiCustomFixtureChannel {
-                        name: "Shutter".into(),
-                        parameter_id: "shutter".into(),
-                        capability: "shutter".into(),
-                        coarse_channel: 4,
-                        fine_channel: None,
-                        default_value: 1.0,
-                        invert: false,
-                    },
+                    custom_test_channel(1, "Dimmer", "intensity"),
+                    custom_test_channel(2, "Pan", "position.pan"),
+                    custom_test_channel(3, "Pan Fine", "position.pan.fine"),
+                    custom_test_channel(4, "Shutter", "shutter"),
                 ],
             },
             None,
@@ -3744,7 +4074,79 @@ mod tests {
                 fine_offset: 2
             }
         ));
-        assert!(definition.modes[0].parameters[1].invert);
+        assert!(!definition.modes[0].parameters[1].invert);
+        assert_eq!(definition.metadata.fixture_type, FixtureType::MovingHead);
+        assert_eq!(definition.modes[0].channels.len(), 4);
+        assert!(bundle.validate().is_ok());
+    }
+
+    #[test]
+    fn custom_fixture_edits_update_instances_and_axis_inversion_is_per_fixture() {
+        let mut bundle = demo_project().unwrap();
+        let definition_command = |footprint| UiProjectCommand::PutCustomFixtureDefinition {
+            definition_id: "custom.editable-par".into(),
+            manufacturer: "House".into(),
+            model: "Editable PAR".into(),
+            fixture_type: "par".into(),
+            icon: "par".into(),
+            beam_kind: "wash".into(),
+            beam_angle_min_degrees: Some(20.0),
+            beam_angle_max_degrees: Some(40.0),
+            mode_id: "main".into(),
+            mode_name: "Main".into(),
+            footprint,
+            channels: (1..=footprint)
+                .map(|channel| custom_test_channel(channel, &format!("Custom {channel}"), "custom"))
+                .collect(),
+        };
+        assert!(!apply_project_command(&mut bundle, definition_command(2), None).unwrap());
+        assert!(
+            apply_project_command(
+                &mut bundle,
+                UiProjectCommand::AddFixture {
+                    name: "Editable PAR".into(),
+                    definition_id: "custom.editable-par".into(),
+                    mode_id: "main".into(),
+                    x: 0.0,
+                    y: 0.0,
+                },
+                None,
+            )
+            .unwrap()
+        );
+        let fixture_id = bundle.project.fixtures.last().unwrap().id;
+        assert!(apply_project_command(&mut bundle, definition_command(3), None).unwrap());
+        assert_eq!(
+            bundle
+                .project
+                .patch
+                .iter()
+                .find(|patch| patch.fixture_id == fixture_id)
+                .unwrap()
+                .footprint,
+            3
+        );
+
+        assert!(
+            apply_project_command(
+                &mut bundle,
+                UiProjectCommand::UpdateFixtureSettings {
+                    fixture_ids: vec![fixture_id.0.to_string()],
+                    invert_pan: true,
+                    invert_tilt: false,
+                },
+                None,
+            )
+            .unwrap()
+        );
+        let fixture = bundle
+            .project
+            .fixtures
+            .iter()
+            .find(|fixture| fixture.id == fixture_id)
+            .unwrap();
+        assert!(fixture.invert_pan);
+        assert!(!fixture.invert_tilt);
         assert!(bundle.validate().is_ok());
     }
 

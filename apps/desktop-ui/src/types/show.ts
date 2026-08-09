@@ -2,6 +2,8 @@ export type OperationMode = "edit" | "live";
 export type StageView = "front" | "top";
 
 export type FixtureKind = "dimmer" | "par" | "moving-head" | "strobe";
+export type FixtureProfileType = "movingHead" | "par" | "spotlight" | "blinder" | "strobe" | "ledBar" | "bulb" | "fog" | "other";
+export type FixtureBeamKind = "beam" | "spot" | "wash" | "none";
 export type StageObjectKind = "truss" | "speaker" | "stage" | "person" | "shape";
 export type EffectTemplate = "pulse" | "sineWave" | "chase" | "fill" | "randomFlicker" | "sparkle" | "twoColorChase" | "rainbow" | "colorWave" | "randomColor" | "panSweep" | "tiltBounce" | "circle" | "figureEight" | "fireCandleFlicker";
 export type EffectDirection = "forward" | "reverse";
@@ -29,6 +31,8 @@ export interface LayoutFixture {
   pan: number;
   tilt: number;
   zoom: number;
+  invertPan: boolean;
+  invertTilt: boolean;
   parameters: Record<string, number>;
   locked: boolean;
   hidden: boolean;
@@ -40,6 +44,7 @@ export interface FixtureModeSummary {
   name: string;
   footprint: number;
   parameters: FixtureParameterSummary[];
+  channels?: FixtureChannelSummary[];
 }
 
 export interface FixtureParameterSummary {
@@ -58,22 +63,53 @@ export interface FixtureDefinitionSummary {
   manufacturer: string;
   model: string;
   source: "generic" | "ofl" | "custom";
+  fixtureType?: FixtureProfileType;
+  icon?: string;
+  beamKind?: FixtureBeamKind;
+  beamAngleMinDegrees?: number | null;
+  beamAngleMaxDegrees?: number | null;
+  virtualColor?: boolean;
   modes: FixtureModeSummary[];
 }
 
-export interface CustomFixtureChannel {
+export interface FixtureRangeSummary {
+  start: number;
+  end: number;
+  label: string;
+  semanticMin: number;
+  semanticMax: number;
+  unit: string;
+  hazardous: boolean;
+}
+
+export interface FixtureChannelSummary {
+  channel: number;
   name: string;
-  parameterId: string;
-  capability: "intensity" | "color" | "position" | "beam" | "shutter" | "gobo" | "custom";
-  coarseChannel: number;
-  fineChannel: number | null;
-  defaultValue: number;
-  invert: boolean;
+  property: string;
+  parameterId: string | null;
+  capability: FixtureParameterSummary["capability"];
+  ranges: FixtureRangeSummary[];
+  pixel: number | null;
+  hazardous: boolean;
+}
+
+export interface CustomFixtureChannel {
+  channel: number;
+  name: string;
+  property: string;
+  ranges: FixtureRangeSummary[];
+  pixel: number | null;
+  hazardous: boolean;
 }
 
 export interface CustomFixtureInput {
   manufacturer: string;
   model: string;
+  fixtureType: FixtureProfileType;
+  icon: string;
+  beamKind: FixtureBeamKind;
+  beamAngleMinDegrees: number | null;
+  beamAngleMaxDegrees: number | null;
   modeId: string;
   modeName: string;
   footprint: number;
@@ -293,6 +329,7 @@ export interface StageObjectUpdate extends Omit<StageObject, "id" | "kind"> {
 
 export type ProjectCommand =
   | { type: "updateLayouts"; data: { layouts: LayoutUpdate[] } }
+  | { type: "updateFixtureSettings"; data: { fixtureIds: string[]; invertPan: boolean; invertTilt: boolean } }
   | { type: "patchFixture"; data: { fixtureId: string; universe: number; address: number } }
   | { type: "addFixture"; data: { name: string; definitionId: string; modeId: string; x: number; y: number } }
   | { type: "addFixturesAtPatch"; data: { name: string; definitionId: string; modeId: string; quantity: number; universe: number; address: number } }

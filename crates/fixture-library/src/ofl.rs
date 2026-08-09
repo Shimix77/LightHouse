@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use lighthouse_domain::{NormalizedValue, ParameterId};
 use lighthouse_fixture_model::{
-    DmxBinding, FixtureDefinition, FixtureMode, ParameterCapability, ParameterDefinition,
+    DmxBinding, FixtureDefinition, FixtureMode, FixtureProfileMetadata, ParameterCapability,
+    ParameterDefinition,
 };
 use serde_json::{Map, Value};
 
@@ -53,6 +54,7 @@ pub fn import_ofl_fixture(
         revision,
         manufacturer: manufacturer_name.to_owned(),
         model: model.to_owned(),
+        metadata: FixtureProfileMetadata::default(),
         modes,
     };
     definition.validate()?;
@@ -153,6 +155,7 @@ fn import_mode(
         name,
         footprint: u16::try_from(mode_channels.len()).ok()?,
         parameters,
+        channels: Vec::new(),
     })
 }
 

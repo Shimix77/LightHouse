@@ -45,6 +45,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
   const [zoom, setZoom] = useState(1);
 
   const fixtures = useShowStore((state) => state.fixtures);
+  const fixtureDefinitions = useShowStore((state) => state.fixtureDefinitions);
   const stageView = useShowStore((state) => state.stageView);
   const stageTool = useShowStore((state) => state.stageTool);
   const gridEnabled = useShowStore((state) => state.gridEnabled);
@@ -357,8 +358,15 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
 
     for (const fixtureItem of fixtures) {
       if (fixtureItem.hidden) continue;
-      const beam = createBeam(fixtureItem);
-      beamLayerRef.current.addChild(beam);
+      const definition = fixtureDefinitions.find((candidate) => candidate.id === fixtureItem.definitionId);
+      if (definition?.beamKind !== "none") {
+        const beam = createBeam(
+          fixtureItem,
+          definition?.beamAngleMinDegrees ?? 8,
+          definition?.beamAngleMaxDegrees ?? 48,
+        );
+        beamLayerRef.current.addChild(beam);
+      }
 
       const container = createFixtureSymbol(fixtureItem, selectedSet.has(fixtureItem.id));
       container.position.set(fixtureItem.x, fixtureItem.y);
@@ -407,7 +415,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       fixtureLayerRef.current.addChild(container);
       fixtureContainersRef.current.set(fixtureItem.id, container);
     }
-  }, [captureHistory, fixtures, onFixtureDoubleClick, ready, selectFixtures, selectedSet]);
+  }, [captureHistory, fixtureDefinitions, fixtures, onFixtureDoubleClick, ready, selectFixtures, selectedSet]);
 
   const backgroundStyle = background
     ? {
@@ -517,10 +525,11 @@ function createStageObjectSymbol(stageObject: StageObject, selected: boolean): C
   return container;
 }
 
-function createBeam(fixtureItem: LayoutFixture): Container {
+function createBeam(fixtureItem: LayoutFixture, minimumAngle: number, maximumAngle: number): Container {
   const container = new Container();
   const length = 1.5 + fixtureItem.tilt * 3.6;
-  const halfWidth = 0.18 + fixtureItem.zoom * 1.1;
+  const angle = minimumAngle + (maximumAngle - minimumAngle) * fixtureItem.zoom;
+  const halfWidth = Math.max(0.05, Math.min(2.2, Math.tan((angle * Math.PI) / 360) * length));
   const beam = new Graphics()
     .poly([0, -0.15, -halfWidth, -length, halfWidth, -length])
     .fill({

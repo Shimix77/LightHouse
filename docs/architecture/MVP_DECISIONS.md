@@ -68,10 +68,11 @@ Tento dokument zaznamenáva produktové rozhodnutia prijaté po architektonickom
 - OFL JSON sa pri builde/importovaní konvertuje do kanonického `FixtureDefinition IR`; nepoužíva sa priamo za behu.
 - Každý profil prejde schema a semantic validátorom. Kriticky chybné profily sa nevydajú, warnings ostávajú viditeľné.
 - Projekt embeduje presnú použitú definition revision, takže aktualizácia knižnice nemení existujúcu show potichu.
-- Custom Fixture Editor je MVP a podporuje manufacturer/model/modes, channels, ranges, 8/16-bit bindingy, defaults, pan/tilt invert a capability mapping.
-- Importovaný profil sa upravuje cez `Clone as Custom`; pôvodný balík je immutable.
+- Custom Fixture Editor je MVP a podporuje manufacturer/model, jeden mode na custom profil, detailné kanály, úplné 0–255 ranges, ručne párované 8/16-bit bindingy, safety flags, beam metadata, ikony a capability mapping.
+- Úprava custom profilu okamžite aktualizuje existujúce fixture instances; zmena footprintu sa pred uložením znova overí proti patch konfliktom.
+- Pan/Tilt invert sa ukladá na konkrétnej fixture instance, nie do spoločného profilu.
 - GDTF importer je plánovaný po stabilizácii interného fixture modelu.
-- Pixel/multi-beam fixtures sa v prvej verzii ovládajú ako jeden celok; detailný pixel editor je Future.
+- Custom pixel/segment kanály sú MVP; virtuálne RGB ovládanie sa vytvorí automaticky, keď profil obsahuje kompletné RGB emitery.
 
 ## MVP implementačné rezy
 

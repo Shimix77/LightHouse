@@ -3,7 +3,7 @@ import type { CSSProperties, DragEvent } from "react";
 
 import { useShowStore } from "../store/showStore";
 import type { FixtureDefinitionSummary, LayoutFixture } from "../types/show";
-import { CustomFixtureDialog } from "./ObjectPanel";
+import { CustomFixtureDialog } from "./CustomFixtureEditor";
 import { MacWindowControls } from "./MacWindowControls";
 
 interface FixtureManagerProps {
@@ -31,6 +31,7 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
   const [quantity, setQuantity] = useState(1);
   const [shortName, setShortName] = useState("P");
   const [customOpen, setCustomOpen] = useState(false);
+  const [customDefinitionId, setCustomDefinitionId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
   const [profileTab, setProfileTab] = useState<ProfileTab>("profile");
@@ -137,17 +138,22 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
     setSourceFilter(values[(values.indexOf(sourceFilter) + 1) % values.length] ?? "all");
   };
 
+  const openCustomFixture = (definition?: FixtureDefinitionSummary) => {
+    setCustomDefinitionId(definition?.source === "custom" ? definition.id : null);
+    setCustomOpen(true);
+  };
+
   return (
     <section className={`fixture-manager-screen ${embedded ? "is-embedded" : ""}`}>
-      {!embedded && <header className="fixture-manager-titlebar"><MacWindowControls /><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button title="Open another project" onClick={() => { void openProject(); }}>↗</button><button title="Save project copy" onClick={() => { void saveProjectAs(); }}>⇩</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>＋</button></div></header>}
+      {!embedded && <header className="fixture-manager-titlebar"><MacWindowControls /><button className="native-done" onClick={onDone}>Done</button><strong>{useShowStore.getState().projectName}</strong><div className="titlebar-actions"><button title="Open another project" onClick={() => { void openProject(); }}>↗</button><button title="Save project copy" onClick={() => { void saveProjectAs(); }}>⇩</button><button title="Create custom fixture" onClick={() => openCustomFixture()}>＋</button></div></header>}
       <div className="fixture-manager-body">
         <aside className="fixture-library-pane">
-          <div className="fixture-library-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fixture Library" /><button className={selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "is-active" : ""} title="Favorite selected profile" onClick={toggleFavorite}>{selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "★" : "☆"}</button><button className={sourceFilter !== "all" ? "is-active" : ""} title={`Source filter: ${sourceFilter}`} onClick={cycleSourceFilter}>▽</button><button title="Create custom fixture" onClick={() => setCustomOpen(true)}>•••</button></div>
+          <div className="fixture-library-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fixture Library" /><button className={selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "is-active" : ""} title="Favorite selected profile" onClick={toggleFavorite}>{selectedDefinition && favoriteIds.has(selectedDefinition.id) ? "★" : "☆"}</button><button className={sourceFilter !== "all" ? "is-active" : ""} title={`Source filter: ${sourceFilter}`} onClick={cycleSourceFilter}>▽</button><button title={selectedDefinition?.source === "custom" ? "Edit selected custom fixture" : "Create custom fixture"} onClick={() => openCustomFixture(selectedDefinition)}>•••</button></div>
           <div className="fixture-library-columns">
             <div className="manufacturer-column"><header>Manufacturers</header>{manufacturers.map((name) => <button className={name === manufacturer ? "is-selected" : ""} key={name} onClick={() => setManufacturer(name)}>{name}</button>)}</div>
-            <div className="profile-column"><header>Profiles ({manufacturer})</header>{profiles.map((definition) => <button draggable className={definition.id === selectedDefinition?.id ? "is-selected" : ""} key={definition.id} onDragStart={(event) => { event.dataTransfer.setData("application/x-lighthouse-fixture", definition.id); event.dataTransfer.effectAllowed = "copy"; }} onClick={() => selectProfile(definition)} onDoubleClick={() => selectProfile(definition)}><span>{fixtureGlyph(definition)}</span><span><strong>{definition.model}</strong><small>{definition.modes.map((mode) => `${mode.footprint}ch`).join(" · ")}</small></span></button>)}</div>
+            <div className="profile-column"><header>Profiles ({manufacturer})</header>{profiles.map((definition) => <button draggable className={definition.id === selectedDefinition?.id ? "is-selected" : ""} key={definition.id} onDragStart={(event) => { event.dataTransfer.setData("application/x-lighthouse-fixture", definition.id); event.dataTransfer.effectAllowed = "copy"; }} onClick={() => selectProfile(definition)} onDoubleClick={() => definition.source === "custom" ? openCustomFixture(definition) : selectProfile(definition)}><span>{fixtureGlyph(definition)}</span><span><strong>{definition.model}</strong><small>{definition.modes.map((mode) => `${mode.footprint}ch`).join(" · ")}{definition.source === "custom" ? " · Double-click to edit" : ""}</small></span></button>)}</div>
           </div>
-          <button className="custom-profile-button" onClick={() => setCustomOpen(true)}>♙ <span><strong>Custom Profiles</strong><small>Create and categorize channels</small></span><b>›</b></button>
+          <button className="custom-profile-button" onClick={() => openCustomFixture()}>♙ <span><strong>Custom Profiles</strong><small>Create and categorize channels</small></span><b>›</b></button>
           <footer><span>{visibleDefinitions.length.toLocaleString()} of {definitions.length.toLocaleString()} profiles · {sourceFilter}</span><button title="Reset library filters" onClick={() => { setQuery(""); setSourceFilter("all"); }}>↻</button></footer>
         </aside>
 
@@ -187,7 +193,7 @@ export function FixtureManager({ onDone, embedded = false }: FixtureManagerProps
           <footer className="patch-footer"><span><b>{occupied.size} occupied</b> · {512 - occupied.size} free channels in Universe {universe}</span>{embedded && <button className="native-done" onClick={onDone}>Continue</button>}</footer>
         </section>
       </div>
-      {customOpen && <CustomFixtureDialog onClose={() => setCustomOpen(false)} onCreated={(id) => { const created = useShowStore.getState().fixtureDefinitions.find((definition) => definition.id === id); if (created) selectProfile(created); setCustomOpen(false); }} />}
+      {customOpen && <CustomFixtureDialog definition={definitions.find((definition) => definition.id === customDefinitionId)} onClose={() => setCustomOpen(false)} onCreated={(id) => { const created = useShowStore.getState().fixtureDefinitions.find((definition) => definition.id === id); if (created) selectProfile(created); setCustomOpen(false); }} />}
     </section>
   );
 }
@@ -229,6 +235,8 @@ function suggestShortName(definition: FixtureDefinitionSummary): string {
 
 function fixtureGlyph(definition: FixtureDefinitionSummary | undefined): string {
   if (!definition) return "◉";
+  if (definition.icon) return ({ "moving-head": "♙", par: "◉", spot: "◍", wash: "◌", blinder: "▦", strobe: "✳", "led-bar": "▥", bulb: "●", fog: "☁", fixture: "◇" } as Record<string, string>)[definition.icon] ?? "◇";
+  if (definition.fixtureType) return ({ movingHead: "♙", par: "◉", spotlight: "◍", blinder: "▦", strobe: "✳", ledBar: "▥", bulb: "●", fog: "☁", other: "◇" } as Record<string, string>)[definition.fixtureType] ?? "◇";
   const value = definition.model.toLowerCase();
   if (value.includes("moving") || value.includes("head")) return "♙";
   if (value.includes("strobe")) return "✳";

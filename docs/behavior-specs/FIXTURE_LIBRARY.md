@@ -19,7 +19,11 @@ Status: MVP behavior contract
 
 ## Custom fixture editor
 
-- A user defines manufacturer, model, mode, footprint, channel name, logical parameter ID, capability group, default value and axis inversion.
-- Each parameter can use an 8-bit channel or an explicit coarse/fine 16-bit pair.
-- Invalid channel numbers, duplicate DMX offsets, duplicate logical IDs and offsets outside the footprint are rejected before saving.
+- The full-screen wizard defines fixture type, manufacturer, model, built-in icon, beam category/angles, one mode, footprint and physical channels.
+- Every physical channel stores a searchable Lightkey-style logical property plus one or more named DMX ranges with raw bounds, semantic bounds/units and safety flags.
+- Ranges must cover exactly 0–255 without gaps or overlaps. Invalid channel numbers, duplicate offsets/logical IDs and offsets outside the footprint are also rejected before saving.
+- Each parameter uses one 8-bit coarse channel or an explicitly assigned coarse/fine 16-bit pair. All defaults are zero.
+- Optional cell/pixel numbers produce independent segment parameters. Complete RGB components automatically expose virtual color control.
+- Pan/Tilt axis inversion is stored per fixture instance. Editing a custom definition updates all of its existing instances after patch validation.
+- A saved, patched fixture can be exercised through a confirmation-gated physical tester that still sends logical parameter commands through the resolver.
 - Custom definitions are embedded in the project and use the same resolver, scene, effect and inspector paths as library fixtures.

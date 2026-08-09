@@ -8,7 +8,7 @@ Status: **feature-complete macOS internal MVP**
 |---|---|
 | Professional desktop shell | Tauri 2 macOS app, dark EDIT/LIVE UI, native project dialogs, second Live window |
 | 2D Stage Editor | PixiJS/WebGL layout, PNG/JPG floor plan, drag, zoom, pan, rectangle/multi-select, inspector resize/rotation, grid/snap, layers, lock/hide, undo/redo, copy/paste/duplicate/delete |
-| Fixtures | Logical parameter model, 8/16-bit bindings, axis inversion, embedded generic pack, 613-profile pinned OFL snapshot and Custom Fixture Editor |
+| Fixtures | Logical parameter model, manual 8/16-bit pairing, per-instance axis inversion, channel ranges/safety metadata, pixel/virtual RGB control, embedded generic pack, 613-profile pinned OFL snapshot and full-screen Custom Fixture Editor/tester |
 | Patch/universes | Conflict validation, auto-patch, unlimited logical universe IDs, per-universe enable/name/Art-Net route |
 | Real-time output | UI-independent headless Rust sidecar, immutable frame publication, independent 30–44 Hz output thread, non-blocking Art-Net adapter |
 | Scenes/cues | Partial logical scenes, last-activated LTP layering, intensity/color-capable fades, cue GO/BACK/PAUSE |

@@ -175,6 +175,7 @@ mod tests {
                     false,
                 ),
             ],
+            channels: Vec::new(),
         };
         let patch = PatchAssignment::new(fixture_id, UniverseId::new(7), 100, 3).unwrap();
         let values = BTreeMap::from([
@@ -208,6 +209,7 @@ mod tests {
                 ParameterCapability::Position,
                 true,
             )],
+            channels: Vec::new(),
         };
         let patch = PatchAssignment::new(fixture_id, UniverseId::new(1), 1, 1).unwrap();
         let values = BTreeMap::from([(
@@ -246,6 +248,7 @@ mod tests {
                     false,
                 ),
             ],
+            channels: Vec::new(),
         };
         let patch = PatchAssignment::new(fixture_id, UniverseId::new(1), 1, 2).unwrap();
         let values = BTreeMap::from([

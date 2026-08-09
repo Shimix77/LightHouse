@@ -291,8 +291,12 @@ fn compile_fixture(
         )));
     }
     for parameter in &mut mode.parameters {
-        if (fixture.invert_pan && parameter.id.as_str() == "position.pan")
-            || (fixture.invert_tilt && parameter.id.as_str() == "position.tilt")
+        if (fixture.invert_pan
+            && (parameter.id.as_str() == "position.pan"
+                || parameter.id.as_str().starts_with("position.pan.pixel-")))
+            || (fixture.invert_tilt
+                && (parameter.id.as_str() == "position.tilt"
+                    || parameter.id.as_str().starts_with("position.tilt.pixel-")))
         {
             parameter.invert = !parameter.invert;
         }

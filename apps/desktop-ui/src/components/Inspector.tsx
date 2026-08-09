@@ -10,6 +10,7 @@ export function Inspector() {
   const selectedStageObjectIds = useShowStore((state) => state.selectedStageObjectIds);
   const captureHistory = useShowStore((state) => state.captureFixtureHistory);
   const updateSelected = useShowStore((state) => state.updateSelectedFixtures);
+  const updateSelectedFixtureAxes = useShowStore((state) => state.updateSelectedFixtureAxes);
   const setSelectedParameter = useShowStore((state) => state.setSelectedParameter);
   const fixtureDefinitions = useShowStore((state) => state.fixtureDefinitions);
   const updateSelectedStageObjects = useShowStore((state) => state.updateSelectedStageObjects);
@@ -132,6 +133,16 @@ export function Inspector() {
       <InspectorSection title="Position" open>
         <Fader label="Pan" value={primary.pan} onStart={captureHistory} onChange={(pan) => updateSelected({ pan })} />
         <Fader label="Tilt" value={primary.tilt} onStart={captureHistory} onChange={(tilt) => updateSelected({ tilt })} />
+        <div className="layout-toggle-row axis-invert-row">
+          <button
+            className={primary.invertPan ? "is-active" : ""}
+            onClick={() => updateSelectedFixtureAxes(!primary.invertPan, primary.invertTilt)}
+          >Invert Pan</button>
+          <button
+            className={primary.invertTilt ? "is-active" : ""}
+            onClick={() => updateSelectedFixtureAxes(primary.invertPan, !primary.invertTilt)}
+          >Invert Tilt</button>
+        </div>
       </InspectorSection>
 
       <InspectorSection title="Beam" open>
