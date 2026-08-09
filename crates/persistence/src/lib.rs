@@ -184,6 +184,16 @@ pub struct LiveControlRecord {
     pub color: Option<String>,
     #[serde(default)]
     pub behavior: Option<String>,
+    #[serde(default)]
+    pub control_type: Option<String>,
+    #[serde(default)]
+    pub fade_in_ms: Option<u64>,
+    #[serde(default)]
+    pub fade_out_ms: Option<u64>,
+    #[serde(default)]
+    pub dimmer_per_mille: Option<u16>,
+    #[serde(default)]
+    pub beat_multiplier_percent: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

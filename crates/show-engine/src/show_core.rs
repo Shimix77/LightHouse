@@ -53,15 +53,18 @@ struct ActiveScene {
     duration: Duration,
     from_values: FixtureParameterValues,
     target_values: FixtureParameterValues,
+    level: NormalizedValue,
 }
 
 impl ActiveScene {
     fn values_at(&self, now: Duration) -> FixtureParameterValues {
-        interpolate_values(
+        let mut values = interpolate_values(
             &self.from_values,
             &self.target_values,
             transition_progress(self.started_at, self.duration, now),
-        )
+        );
+        scale_intensity_values(&mut values, self.level);
+        values
     }
 }
 
@@ -326,6 +329,17 @@ impl<C: MonotonicClock> ShowCore<C> {
                 self.release_scene(scene_id, fade_ms, now)?;
                 Ok(vec![DomainEvent::SceneReleased { scene_id }])
             }
+            Command::SetSceneLevel { scene_id, level } => {
+                let scene = self
+                    .active_scenes
+                    .iter_mut()
+                    .rfind(|scene| scene.scene_id == scene_id)
+                    .ok_or_else(|| {
+                        rejection(RejectionCode::NotFound, "active scene was not found")
+                    })?;
+                scene.level = level;
+                Ok(vec![DomainEvent::SceneLevelChanged { scene_id, level }])
+            }
             Command::PutCueList { cue_list } => {
                 if cue_list
                     .entries
@@ -546,6 +560,7 @@ impl<C: MonotonicClock> ShowCore<C> {
             duration: Duration::from_millis(fade_ms.unwrap_or(scene.default_fade_ms)),
             from_values,
             target_values: scene.values,
+            level: NormalizedValue::FULL,
         });
         Ok(activation_id)
     }
@@ -839,6 +854,21 @@ fn merge_values(target: &mut FixtureParameterValues, layer: &FixtureParameterVal
     }
 }
 
+fn scale_intensity_values(values: &mut FixtureParameterValues, level: NormalizedValue) {
+    if level == NormalizedValue::FULL {
+        return;
+    }
+    for parameters in values.values_mut() {
+        for (parameter_id, value) in parameters {
+            if parameter_id.as_str() == "intensity"
+                || parameter_id.as_str().starts_with("intensity.pixel-")
+            {
+                *value = NormalizedValue::clamped(value.get() * level.get());
+            }
+        }
+    }
+}
+
 fn values_for_target_keys(
     source: &FixtureParameterValues,
     target_keys: &FixtureParameterValues,
@@ -1049,6 +1079,46 @@ mod tests {
         assert_eq!(intensity(&core), 0.5);
         clock.advance(Duration::from_millis(500));
         assert_eq!(intensity(&core), 1.0);
+    }
+
+    #[test]
+    fn live_scene_level_scales_logical_intensity_without_changing_scene_data() {
+        let clock = ManualClock::default();
+        let mut core = ShowCore::new(PROJECT_ID, clock);
+        accepted(
+            &mut core,
+            1,
+            Command::PutScene {
+                scene: scene(1, 0.8, 0),
+            },
+        );
+        accepted(
+            &mut core,
+            2,
+            Command::ActivateScene {
+                scene_id: SceneId::new(1),
+                fade_ms: Some(0),
+            },
+        );
+        accepted(
+            &mut core,
+            3,
+            Command::SetSceneLevel {
+                scene_id: SceneId::new(1),
+                level: NormalizedValue::new(0.25).unwrap(),
+            },
+        );
+        assert_eq!(intensity(&core), 0.2);
+
+        accepted(
+            &mut core,
+            4,
+            Command::SetSceneLevel {
+                scene_id: SceneId::new(1),
+                level: NormalizedValue::FULL,
+            },
+        );
+        assert_eq!(intensity(&core), 0.8);
     }
 
     #[test]

@@ -201,6 +201,11 @@ export interface LiveControlSummary {
   height: number;
   color: string;
   behavior: "toggle" | "flash" | "push" | "radio";
+  controlType: "button" | "faderHorizontal" | "faderVertical";
+  fadeInMs: number;
+  fadeOutMs: number;
+  dimmer: number;
+  beatMultiplier: number;
 }
 
 export interface EngineTelemetry {
@@ -293,6 +298,7 @@ export type EngineCommand =
   | { type: "clearProgrammer"; data: { fixtureId: string | null } }
   | { type: "activateScene"; data: { sceneId: string; fadeMs: number | null } }
   | { type: "releaseScene"; data: { sceneId: string; fadeMs: number | null } }
+  | { type: "setSceneLevel"; data: { sceneId: string; level: number } }
   | { type: "goNextCue"; data: { cueListId: string } }
   | { type: "backCue"; data: { cueListId: string } }
   | { type: "pauseCueList"; data: { cueListId: string } }
@@ -348,6 +354,7 @@ export type ProjectCommand =
   | { type: "putGroup"; data: { groupId: string | null; name: string; fixtureIds: string[] } }
   | { type: "deleteGroup"; data: { groupId: string } }
   | { type: "captureScene"; data: { name: string; fixtureIds: string[]; fadeMs: number } }
+  | { type: "recaptureScene"; data: { sceneId: string; fixtureIds: string[] } }
   | { type: "updateScene"; data: { sceneId: string; name: string; fadeMs: number } }
   | { type: "deleteScene"; data: { sceneId: string } }
   | { type: "addCue"; data: { cueListId: string | null; sceneId: string } }
@@ -355,5 +362,5 @@ export type ProjectCommand =
   | { type: "putEffect"; data: { effectId: string | null; name: string; template: EffectTemplate; targetParameter: string; amplitude: number; offset: number; speedHz: number; beatMultiplier: number; beatSync: boolean; spatialPhase: number; direction: EffectDirection; blend: EffectBlend; order: EffectOrder } }
   | { type: "deleteEffect"; data: { effectId: string } }
   | { type: "putLiveControl"; data: { controlId: string | null; label: string; sceneId: string | null; effectId: string | null; page: number; position: number } }
-  | { type: "updateLiveControlLayout"; data: { controlId: string; gridX: number; gridY: number; width: number; height: number; color: string; behavior: LiveControlSummary["behavior"] } }
+  | { type: "updateLiveControlLayout"; data: { controlId: string; gridX: number; gridY: number; width: number; height: number; color: string; behavior: LiveControlSummary["behavior"]; controlType: LiveControlSummary["controlType"]; fadeInMs: number; fadeOutMs: number; dimmer: number; beatMultiplier: number } }
   | { type: "deleteLiveControl"; data: { controlId: string } };

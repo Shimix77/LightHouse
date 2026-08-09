@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   Application,
   Container,
   FederatedPointerEvent,
   Graphics,
+  Text as PixiText,
 } from "pixi.js";
 
 import { useShowStore } from "../store/showStore";
@@ -24,6 +26,23 @@ interface RectangleState {
   startY: number;
 }
 
+interface TransformState {
+  kind: "fixture" | "object";
+  id: string;
+  mode: "resize" | "rotate";
+  centerX: number;
+  centerY: number;
+  startDistance: number;
+  startAngle: number;
+  width: number;
+  height: number;
+  rotation: number;
+  nextWidth: number;
+  nextHeight: number;
+  nextRotation: number;
+  container: Container;
+}
+
 export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
@@ -37,6 +56,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
   const stageObjectContainersRef = useRef(new Map<string, Container>());
   const dragRef = useRef<DragState | null>(null);
   const rectangleRef = useRef<RectangleState | null>(null);
+  const transformRef = useRef<TransformState | null>(null);
   const panRef = useRef<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
   const spacePressedRef = useRef(false);
   const stageToolRef = useRef<"select" | "pan" | "rectangle">("select");
@@ -58,12 +78,42 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
   const captureHistory = useShowStore((state) => state.captureFixtureHistory);
   const moveFixtures = useShowStore((state) => state.moveFixtures);
   const moveStageObjects = useShowStore((state) => state.moveStageObjects);
+  const updateSelectedFixtures = useShowStore((state) => state.updateSelectedFixtures);
+  const updateSelectedStageObjects = useShowStore((state) => state.updateSelectedStageObjects);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const primaryFixture = fixtures.find((fixtureItem) => selectedSet.has(fixtureItem.id));
   const selectedStageObjectSet = useMemo(
     () => new Set(selectedStageObjectIds),
     [selectedStageObjectIds],
   );
+
+  const beginTransform = useCallback((event: FederatedPointerEvent, kind: "fixture" | "object", item: LayoutFixture | StageObject, container: Container, mode: "resize" | "rotate") => {
+    if (stageToolRef.current !== "select") return;
+    event.stopPropagation();
+    captureHistory();
+    if (kind === "fixture") selectFixtures([item.id]);
+    else selectStageObjects([item.id]);
+    const world = worldRef.current;
+    if (!world) return;
+    const point = world.toLocal(event.global);
+    transformRef.current = {
+      kind,
+      id: item.id,
+      mode,
+      centerX: item.x,
+      centerY: item.y,
+      startDistance: Math.hypot(point.x - item.x, point.y - item.y),
+      startAngle: Math.atan2(point.y - item.y, point.x - item.x) * 180 / Math.PI,
+      width: item.width,
+      height: item.height,
+      rotation: item.rotation,
+      nextWidth: item.width,
+      nextHeight: item.height,
+      nextRotation: item.rotation,
+      container,
+    };
+  }, [captureHistory, selectFixtures, selectStageObjects]);
 
   useEffect(() => {
     stageToolRef.current = stageTool;
@@ -188,6 +238,25 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
           return;
         }
         const point = world.toLocal(event.global);
+        if (transformRef.current) {
+          const transform = transformRef.current;
+          if (transform.mode === "resize") {
+            const distance = Math.hypot(point.x - transform.centerX, point.y - transform.centerY);
+            const scale = Math.max(0.2, distance / Math.max(0.05, transform.startDistance));
+            transform.nextWidth = Math.max(0.2, transform.width * scale);
+            transform.nextHeight = Math.max(0.2, transform.height * scale);
+            if (transform.kind === "fixture") {
+              transform.container.scale.set(transform.nextWidth / 0.65, transform.nextHeight / 0.65);
+            } else {
+              transform.container.scale.set(scale);
+            }
+          } else {
+            const angle = Math.atan2(point.y - transform.centerY, point.x - transform.centerX) * 180 / Math.PI;
+            transform.nextRotation = (transform.rotation + angle - transform.startAngle + 360) % 360;
+            transform.container.rotation = transform.nextRotation * Math.PI / 180;
+          }
+          return;
+        }
         if (dragRef.current) {
           const deltaX = point.x - dragRef.current.startX;
           const deltaY = point.y - dragRef.current.startY;
@@ -223,6 +292,18 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
           return;
         }
         const point = world.toLocal(event.global);
+        if (transformRef.current) {
+          const transform = transformRef.current;
+          if (transform.kind === "fixture") {
+            selectFixtures([transform.id]);
+            updateSelectedFixtures({ width: transform.nextWidth, height: transform.nextHeight, rotation: transform.nextRotation });
+          } else {
+            selectStageObjects([transform.id]);
+            updateSelectedStageObjects({ width: transform.nextWidth, height: transform.nextHeight, rotation: transform.nextRotation });
+          }
+          transformRef.current = null;
+          return;
+        }
         if (dragRef.current) {
           const deltaX = point.x - dragRef.current.startX;
           const deltaY = point.y - dragRef.current.startY;
@@ -298,7 +379,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
         stageApp.canvas.removeEventListener("wheel", onWheel);
       };
     }
-  }, [captureHistory, moveFixtures, moveStageObjects, selectFixtures, selectStageObjects]);
+  }, [captureHistory, moveFixtures, moveStageObjects, selectFixtures, selectStageObjects, updateSelectedFixtures, updateSelectedStageObjects]);
 
   useEffect(() => {
     if (!ready || !stageObjectLayerRef.current) return;
@@ -306,9 +387,11 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
     stageObjectContainersRef.current.clear();
     for (const stageObject of stageObjects) {
       if (stageObject.hidden) continue;
-      const container = createStageObjectSymbol(
+      let container!: Container;
+      container = createStageObjectSymbol(
         stageObject,
         selectedStageObjectSet.has(stageObject.id),
+        (event, mode) => beginTransform(event, "object", stageObject, container, mode),
       );
       container.position.set(stageObject.x, stageObject.y);
       container.rotation = (stageObject.rotation * Math.PI) / 180;
@@ -348,7 +431,7 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       stageObjectLayerRef.current.addChild(container);
       stageObjectContainersRef.current.set(stageObject.id, container);
     }
-  }, [captureHistory, ready, selectStageObjects, selectedStageObjectSet, stageObjects]);
+  }, [beginTransform, captureHistory, ready, selectStageObjects, selectedStageObjectSet, stageObjects]);
 
   useEffect(() => {
     if (!ready || !fixtureLayerRef.current || !beamLayerRef.current) return;
@@ -368,7 +451,12 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
         beamLayerRef.current.addChild(beam);
       }
 
-      const container = createFixtureSymbol(fixtureItem, selectedSet.has(fixtureItem.id));
+      let container!: Container;
+      container = createFixtureSymbol(
+        fixtureItem,
+        selectedSet.has(fixtureItem.id),
+        (event, mode) => beginTransform(event, "fixture", fixtureItem, container, mode),
+      );
       container.position.set(fixtureItem.x, fixtureItem.y);
       container.scale.set(fixtureItem.width / 0.65, fixtureItem.height / 0.65);
       container.rotation = (fixtureItem.rotation * Math.PI) / 180;
@@ -415,16 +503,22 @@ export function StageEditor({ onFixtureDoubleClick }: { onFixtureDoubleClick?: (
       fixtureLayerRef.current.addChild(container);
       fixtureContainersRef.current.set(fixtureItem.id, container);
     }
-  }, [captureHistory, fixtureDefinitions, fixtures, onFixtureDoubleClick, ready, selectFixtures, selectedSet]);
+  }, [beginTransform, captureHistory, fixtureDefinitions, fixtures, onFixtureDoubleClick, ready, selectFixtures, selectedSet]);
 
   const backgroundStyle = background
     ? {
         backgroundImage: `linear-gradient(rgba(9, 12, 16, ${1 - background.opacity * 0.74}), rgba(9, 12, 16, ${1 - background.opacity * 0.74})), url("${background.dataUrl}")`,
       }
     : undefined;
+  const stageWashStyle = primaryFixture
+    ? {
+        "--stage-wash": fixtureDisplayColor(primaryFixture),
+        "--stage-wash-opacity": `${Math.round(Math.max(4, primaryFixture.intensity * 22))}%`,
+      } as CSSProperties
+    : undefined;
 
   return (
-    <section className={`stage-editor stage-view-${stageView}`} aria-label={`2D Stage Editor · ${stageView} view`}>
+    <section className={`stage-editor stage-view-${stageView}`} style={stageWashStyle} aria-label={`2D Stage Editor · ${stageView} view`}>
       <div className="stage-meta">
         <span>{stageView.toUpperCase()} VIEW</span>
         <strong>1 m grid</strong>
@@ -457,9 +551,9 @@ function createGrid(): Graphics {
   return grid;
 }
 
-function createFixtureSymbol(fixtureItem: LayoutFixture, selected: boolean): Container {
+function createFixtureSymbol(fixtureItem: LayoutFixture, selected: boolean, onTransform: (event: FederatedPointerEvent, mode: "resize" | "rotate") => void): Container {
   const container = new Container();
-  const color = parseColor(fixtureItem.color);
+  const color = parseColor(fixtureDisplayColor(fixtureItem));
   const body = new Graphics();
   if (fixtureItem.kind === "moving-head") {
     body.roundRect(-0.31, -0.25, 0.62, 0.5, 0.12).fill({ color: 0x1c2531 });
@@ -476,27 +570,67 @@ function createFixtureSymbol(fixtureItem: LayoutFixture, selected: boolean): Con
   body.stroke({ color: selected ? 0x65d6ff : 0x657489, alpha: 0.95, width: selected ? 0.055 : 0.025 });
   container.addChild(body);
   if (selected) {
-    container.addChild(
-      new Graphics()
-        .circle(0, 0, 0.48)
-        .stroke({ color: 0x65d6ff, alpha: 0.9, width: 0.035 }),
-    );
+    const selection = new Graphics()
+      .roundRect(-0.46, -0.46, 0.92, 0.92, 0.08)
+      .stroke({ color: 0x65d6ff, alpha: 0.95, width: 0.03 })
+      .moveTo(0, -0.46).lineTo(0, -0.7).stroke({ color: 0x65d6ff, alpha: 0.9, width: 0.025 });
+    container.addChild(selection);
+    const handles: Array<[number, number]> = [[-0.46, -0.46], [0, -0.46], [0.46, -0.46], [-0.46, 0], [0.46, 0], [-0.46, 0.46], [0, 0.46], [0.46, 0.46]];
+    for (const [x, y] of handles) {
+      const handle = new Graphics().circle(0, 0, 0.065).fill({ color: 0x0a84ff }).stroke({ color: 0xffffff, width: 0.018 });
+      handle.position.set(x, y);
+      handle.eventMode = "static";
+      handle.cursor = "nwse-resize";
+      handle.on("pointerdown", (event) => onTransform(event, "resize"));
+      container.addChild(handle);
+    }
+    const rotateHandle = new Graphics().circle(0, 0, 0.075).fill({ color: 0x0a84ff }).stroke({ color: 0xffffff, width: 0.018 });
+    rotateHandle.position.set(0, -0.72);
+    rotateHandle.eventMode = "static";
+    rotateHandle.cursor = "grab";
+    rotateHandle.on("pointerdown", (event) => onTransform(event, "rotate"));
+    container.addChild(rotateHandle);
   }
+  const label = new PixiText({
+    text: fixtureItem.name,
+    style: {
+      fill: 0xf7f9fc,
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+      fontSize: 0.18,
+      fontWeight: "600",
+      stroke: { color: 0x11151b, width: 0.035 },
+    },
+  });
+  label.anchor.set(0.5, 1);
+  label.position.set(0, -0.5);
+  container.addChild(label);
   return container;
 }
 
-function createStageObjectSymbol(stageObject: StageObject, selected: boolean): Container {
+function createStageObjectSymbol(stageObject: StageObject, selected: boolean, onTransform: (event: FederatedPointerEvent, mode: "resize" | "rotate") => void): Container {
   const container = new Container();
   const body = new Graphics();
+  let objectLabel: PixiText | undefined;
   const left = -stageObject.width / 2;
   const top = -stageObject.height / 2;
   const border = selected ? 0x65d6ff : 0x667588;
+  const objectName = stageObject.name.toLowerCase();
   if (stageObject.kind === "truss") {
-    body.roundRect(left, top, stageObject.width, stageObject.height, 0.05).fill({ color: 0x303b49 });
-    const step = Math.max(0.28, stageObject.height * 1.2);
-    for (let x = left; x < left + stageObject.width; x += step) {
-      body.moveTo(x, top).lineTo(Math.min(x + step, left + stageObject.width), top + stageObject.height)
-        .stroke({ color: 0x8c99a9, alpha: 0.72, width: 0.025 });
+    if (objectName.includes("circular")) {
+      const radius = Math.min(stageObject.width, stageObject.height) / 2;
+      body.circle(0, 0, radius).stroke({ color: 0x9aa7b7, alpha: 0.9, width: Math.max(0.08, radius * 0.14) });
+      body.circle(0, 0, radius * 0.78).stroke({ color: 0x394654, alpha: 0.9, width: 0.035 });
+    } else if (objectName.includes("arc")) {
+      body.moveTo(left, top + stageObject.height)
+        .quadraticCurveTo(0, top - stageObject.height * 0.7, left + stageObject.width, top + stageObject.height)
+        .stroke({ color: 0x9aa7b7, alpha: 0.9, width: Math.max(0.08, stageObject.height * 0.2) });
+    } else {
+      body.roundRect(left, top, stageObject.width, stageObject.height, 0.05).fill({ color: 0x303b49 });
+      const step = Math.max(0.28, stageObject.height * 1.2);
+      for (let x = left; x < left + stageObject.width; x += step) {
+        body.moveTo(x, top).lineTo(Math.min(x + step, left + stageObject.width), top + stageObject.height)
+          .stroke({ color: 0x8c99a9, alpha: 0.72, width: 0.025 });
+      }
     }
   } else if (stageObject.kind === "speaker") {
     body.roundRect(left, top, stageObject.width, stageObject.height, 0.08).fill({ color: 0x171d25 });
@@ -513,15 +647,50 @@ function createStageObjectSymbol(stageObject: StageObject, selected: boolean): C
     body.moveTo(-stageObject.width * 0.25, top + stageObject.height * 0.44)
       .lineTo(stageObject.width * 0.25, top + stageObject.height * 0.44)
       .stroke({ color: 0xb3bfce, width: 0.04 });
+  } else if (objectName.includes("circle")) {
+    body.ellipse(0, 0, stageObject.width / 2, stageObject.height / 2)
+      .fill({ color: 0x384657, alpha: 0.36 })
+      .stroke({ color: border, width: selected ? 0.06 : 0.025 });
+  } else if (objectName.includes("triangle")) {
+    body.poly([0, top, left + stageObject.width, top + stageObject.height, left, top + stageObject.height])
+      .fill({ color: 0x384657, alpha: 0.48 })
+      .stroke({ color: border, width: selected ? 0.06 : 0.025 });
+  } else if (objectName === "line") {
+    body.moveTo(left, top + stageObject.height).lineTo(left + stageObject.width, top)
+      .stroke({ color: border, width: selected ? 0.08 : 0.04 });
+  } else if (objectName === "text") {
+    body.roundRect(left, top, stageObject.width, stageObject.height, 0.06).fill({ color: 0x202a36, alpha: 0.24 });
+    objectLabel = new PixiText({
+      text: stageObject.name,
+      style: { fill: 0xdde7f2, fontSize: Math.max(0.22, stageObject.height * 0.34), fontWeight: "600" },
+    });
+    objectLabel.anchor.set(0.5);
   } else {
     body.roundRect(left, top, stageObject.width, stageObject.height, 0.06).fill({ color: 0x384657, alpha: 0.72 });
   }
-  body.rect(left, top, stageObject.width, stageObject.height).stroke({
-    color: border,
-    alpha: selected ? 1 : 0.78,
-    width: selected ? 0.06 : 0.025,
-  });
+  if (selected) {
+    body.rect(left, top, stageObject.width, stageObject.height).stroke({ color: border, alpha: 1, width: 0.045 })
+      .moveTo(0, top).lineTo(0, top - 0.3).stroke({ color: border, alpha: 0.9, width: 0.025 });
+  }
   container.addChild(body);
+  if (objectLabel) container.addChild(objectLabel);
+  if (selected) {
+    const handles: Array<[number, number]> = [[left, top], [0, top], [left + stageObject.width, top], [left, 0], [left + stageObject.width, 0], [left, top + stageObject.height], [0, top + stageObject.height], [left + stageObject.width, top + stageObject.height]];
+    for (const [x, y] of handles) {
+      const handle = new Graphics().circle(0, 0, 0.07).fill({ color: 0x0a84ff }).stroke({ color: 0xffffff, width: 0.018 });
+      handle.position.set(x, y);
+      handle.eventMode = "static";
+      handle.cursor = "nwse-resize";
+      handle.on("pointerdown", (event) => onTransform(event, "resize"));
+      container.addChild(handle);
+    }
+    const rotateHandle = new Graphics().circle(0, 0, 0.08).fill({ color: 0x0a84ff }).stroke({ color: 0xffffff, width: 0.018 });
+    rotateHandle.position.set(0, top - 0.32);
+    rotateHandle.eventMode = "static";
+    rotateHandle.cursor = "grab";
+    rotateHandle.on("pointerdown", (event) => onTransform(event, "rotate"));
+    container.addChild(rotateHandle);
+  }
   return container;
 }
 
@@ -530,12 +699,18 @@ function createBeam(fixtureItem: LayoutFixture, minimumAngle: number, maximumAng
   const length = 1.5 + fixtureItem.tilt * 3.6;
   const angle = minimumAngle + (maximumAngle - minimumAngle) * fixtureItem.zoom;
   const halfWidth = Math.max(0.05, Math.min(2.2, Math.tan((angle * Math.PI) / 360) * length));
-  const beam = new Graphics()
-    .poly([0, -0.15, -halfWidth, -length, halfWidth, -length])
-    .fill({
-      color: parseColor(fixtureItem.color),
-      alpha: 0.04 + fixtureItem.intensity * 0.13,
+  const beam = new Graphics();
+  const color = parseColor(fixtureDisplayColor(fixtureItem));
+  const segments = 10;
+  for (let index = segments; index >= 1; index -= 1) {
+    const ratio = index / segments;
+    const segmentLength = length * ratio;
+    const segmentWidth = halfWidth * ratio;
+    beam.poly([0, -0.13, -segmentWidth, -segmentLength, segmentWidth, -segmentLength]).fill({
+      color,
+      alpha: (0.012 + fixtureItem.intensity * 0.026) * (1.12 - ratio * 0.56),
     });
+  }
   container.addChild(beam);
   container.position.set(fixtureItem.x, fixtureItem.y);
   container.rotation = fixtureItem.rotation * (Math.PI / 180) + (fixtureItem.pan - 0.5) * 1.2;
@@ -560,6 +735,13 @@ function drawSelectionRectangle(
 
 function parseColor(color: string): number {
   return Number.parseInt(color.replace("#", ""), 16);
+}
+
+function fixtureDisplayColor(fixtureItem: LayoutFixture): string {
+  const raw = fixtureItem.color.replace("#", "").padEnd(6, "0");
+  const white = Math.max(0, Math.min(1, fixtureItem.parameters["color.white"] ?? 0));
+  const channel = (offset: number) => Math.min(255, Number.parseInt(raw.slice(offset, offset + 2), 16) + Math.round(white * 255));
+  return `#${channel(0).toString(16).padStart(2, "0")}${channel(2).toString(16).padStart(2, "0")}${channel(4).toString(16).padStart(2, "0")}`;
 }
 
 function isFormField(target: EventTarget | null): boolean {

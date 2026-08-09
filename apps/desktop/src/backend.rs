@@ -363,6 +363,10 @@ pub enum UiEngineCommand {
         scene_id: String,
         fade_ms: Option<u64>,
     },
+    SetSceneLevel {
+        scene_id: String,
+        level: f64,
+    },
     GoNextCue {
         cue_list_id: String,
     },
@@ -526,6 +530,10 @@ pub enum UiProjectCommand {
         fixture_ids: Vec<String>,
         fade_ms: u64,
     },
+    RecaptureScene {
+        scene_id: String,
+        fixture_ids: Vec<String>,
+    },
     UpdateScene {
         scene_id: String,
         name: String,
@@ -576,6 +584,11 @@ pub enum UiProjectCommand {
         height: u16,
         color: String,
         behavior: String,
+        control_type: String,
+        fade_in_ms: u64,
+        fade_out_ms: u64,
+        dimmer: f64,
+        beat_multiplier: f64,
     },
     DeleteLiveControl {
         control_id: String,
@@ -642,6 +655,7 @@ impl UiEngineCommand {
             Self::SetAudioTempo { .. } => PriorityLane::Background,
             Self::ActivateScene { .. }
             | Self::ReleaseScene { .. }
+            | Self::SetSceneLevel { .. }
             | Self::GoNextCue { .. }
             | Self::BackCue { .. }
             | Self::PauseCueList { .. }
@@ -680,6 +694,11 @@ impl UiEngineCommand {
             Self::ReleaseScene { scene_id, fade_ms } => Command::ReleaseScene {
                 scene_id: SceneId::new(parse_id(&scene_id)?),
                 fade_ms,
+            },
+            Self::SetSceneLevel { scene_id, level } => Command::SetSceneLevel {
+                scene_id: SceneId::new(parse_id(&scene_id)?),
+                level: NormalizedValue::new(level)
+                    .map_err(|error| BackendError::InvalidCommand(error.to_string()))?,
             },
             Self::GoNextCue { cue_list_id } => Command::GoNextCue {
                 cue_list_id: CueListId::new(parse_id(&cue_list_id)?),
@@ -753,6 +772,7 @@ impl UiEngineCommand {
             self,
             Self::SetFixtureParameter { .. }
                 | Self::ClearProgrammer { .. }
+                | Self::SetSceneLevel { .. }
                 | Self::SetGrandMaster { .. }
                 | Self::SetBlackout { .. }
                 | Self::SetBlind { .. }
@@ -1013,6 +1033,11 @@ struct UiLiveControlView {
     height: u16,
     color: String,
     behavior: String,
+    control_type: String,
+    fade_in_ms: u64,
+    fade_out_ms: u64,
+    dimmer: f64,
+    beat_multiplier: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1223,6 +1248,14 @@ fn project_view(
             height: control.height.unwrap_or(2),
             color: control.color.clone().unwrap_or_else(|| "#4b6380".into()),
             behavior: control.behavior.clone().unwrap_or_else(|| "toggle".into()),
+            control_type: control
+                .control_type
+                .clone()
+                .unwrap_or_else(|| "button".into()),
+            fade_in_ms: control.fade_in_ms.unwrap_or(500),
+            fade_out_ms: control.fade_out_ms.unwrap_or(500),
+            dimmer: f64::from(control.dimmer_per_mille.unwrap_or(1_000)) / 1_000.0,
+            beat_multiplier: f64::from(control.beat_multiplier_percent.unwrap_or(100)) / 100.0,
         })
         .collect();
     let mut catalog: BTreeMap<String, &FixtureDefinition> = fixture_library
@@ -2536,6 +2569,42 @@ fn apply_project_command(
             });
             Ok(true)
         }
+        UiProjectCommand::RecaptureScene {
+            scene_id,
+            fixture_ids,
+        } => {
+            let snapshot = snapshot.ok_or_else(|| {
+                BackendError::InvalidCommand("preset update requires the running show state".into())
+            })?;
+            let fixture_ids = validated_fixture_ids(bundle, &fixture_ids, true)?;
+            let mut capture_values = snapshot.resolved_values.clone();
+            if snapshot.blind {
+                for (fixture_id, parameters) in &snapshot.blind_values {
+                    capture_values
+                        .entry(*fixture_id)
+                        .or_default()
+                        .extend(parameters.clone());
+                }
+            }
+            let values = fixture_ids
+                .into_iter()
+                .filter_map(|fixture_id| {
+                    capture_values
+                        .get(&fixture_id)
+                        .cloned()
+                        .map(|values| (fixture_id, values))
+                })
+                .collect();
+            let scene_id = SceneId::new(parse_id(&scene_id)?);
+            let scene = bundle
+                .project
+                .scenes
+                .iter_mut()
+                .find(|scene| scene.id == scene_id)
+                .ok_or_else(|| BackendError::InvalidCommand("scene was not found".into()))?;
+            scene.values = values;
+            Ok(true)
+        }
         UiProjectCommand::UpdateScene {
             scene_id,
             name,
@@ -2755,6 +2824,11 @@ fn apply_project_command(
                 height: None,
                 color: None,
                 behavior: None,
+                control_type: None,
+                fade_in_ms: None,
+                fade_out_ms: None,
+                dimmer_per_mille: None,
+                beat_multiplier_percent: None,
             };
             if let Some(index) = bundle
                 .project
@@ -2776,6 +2850,11 @@ fn apply_project_command(
             height,
             color,
             behavior,
+            control_type,
+            fade_in_ms,
+            fade_out_ms,
+            dimmer,
+            beat_multiplier,
         } => {
             if width == 0 || height == 0 || width > 12 || height > 8 || grid_x > 63 || grid_y > 63 {
                 return Err(BackendError::InvalidCommand(
@@ -2785,6 +2864,26 @@ fn apply_project_command(
             if !matches!(behavior.as_str(), "toggle" | "flash" | "push" | "radio") {
                 return Err(BackendError::InvalidCommand(
                     "live control behavior is invalid".into(),
+                ));
+            }
+            if !matches!(
+                control_type.as_str(),
+                "button" | "faderHorizontal" | "faderVertical"
+            ) {
+                return Err(BackendError::InvalidCommand(
+                    "live control type is invalid".into(),
+                ));
+            }
+            validate_fade(fade_in_ms)?;
+            validate_fade(fade_out_ms)?;
+            if !(0.0..=1.0).contains(&dimmer) || !dimmer.is_finite() {
+                return Err(BackendError::InvalidCommand(
+                    "live control dimmer must be between zero and one".into(),
+                ));
+            }
+            if !(0.25..=16.0).contains(&beat_multiplier) || !beat_multiplier.is_finite() {
+                return Err(BackendError::InvalidCommand(
+                    "live control beat multiplier must be between 0.25 and 16".into(),
                 ));
             }
             if color.len() != 7
@@ -2808,6 +2907,11 @@ fn apply_project_command(
             control.height = Some(height);
             control.color = Some(color);
             control.behavior = Some(behavior);
+            control.control_type = Some(control_type);
+            control.fade_in_ms = Some(fade_in_ms);
+            control.fade_out_ms = Some(fade_out_ms);
+            control.dimmer_per_mille = Some((dimmer * 1_000.0).round() as u16);
+            control.beat_multiplier_percent = Some((beat_multiplier * 100.0).round() as u16);
             Ok(false)
         }
         UiProjectCommand::DeleteLiveControl { control_id } => {
@@ -3564,6 +3668,11 @@ fn demo_project() -> Result<ProjectBundle, BackendError> {
             height: None,
             color: None,
             behavior: None,
+            control_type: None,
+            fade_in_ms: None,
+            fade_out_ms: None,
+            dimmer_per_mille: None,
+            beat_multiplier_percent: None,
         })
         .collect();
     bundle.validate()?;
@@ -4277,6 +4386,35 @@ mod tests {
         assert_eq!(captured.default_fade_ms, 750);
         let scene_id = captured.id;
 
+        let mut recapture_snapshot = snapshot.clone();
+        recapture_snapshot
+            .resolved_values
+            .entry(fixture_id)
+            .or_default()
+            .insert(
+                ParameterId::new("intensity"),
+                NormalizedValue::clamped(0.81),
+            );
+        apply_project_command(
+            &mut bundle,
+            UiProjectCommand::RecaptureScene {
+                scene_id: scene_id.0.to_string(),
+                fixture_ids: vec![fixture_id.0.to_string()],
+            },
+            Some(&recapture_snapshot),
+        )
+        .unwrap();
+        let recaptured = bundle
+            .project
+            .scenes
+            .iter()
+            .find(|scene| scene.id == scene_id)
+            .unwrap();
+        assert_eq!(
+            recaptured.values[&fixture_id][&ParameterId::new("intensity")],
+            NormalizedValue::clamped(0.81)
+        );
+
         apply_project_command(
             &mut bundle,
             UiProjectCommand::AddCue {
@@ -4345,6 +4483,11 @@ mod tests {
                 height: 3,
                 color: "#18cbe8".into(),
                 behavior: "flash".into(),
+                control_type: "button".into(),
+                fade_in_ms: 750,
+                fade_out_ms: 1_250,
+                dimmer: 0.8,
+                beat_multiplier: 2.0,
             },
             None,
         )
@@ -4359,6 +4502,13 @@ mod tests {
         assert_eq!((resized.width, resized.height), (Some(5), Some(3)));
         assert_eq!(resized.color.as_deref(), Some("#18cbe8"));
         assert_eq!(resized.behavior.as_deref(), Some("flash"));
+        assert_eq!(resized.control_type.as_deref(), Some("button"));
+        assert_eq!(
+            (resized.fade_in_ms, resized.fade_out_ms),
+            (Some(750), Some(1_250))
+        );
+        assert_eq!(resized.dimmer_per_mille, Some(800));
+        assert_eq!(resized.beat_multiplier_percent, Some(200));
         assert!(bundle.validate().is_ok());
     }
 

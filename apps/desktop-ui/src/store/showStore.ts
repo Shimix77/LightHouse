@@ -130,6 +130,8 @@ interface ShowUiState {
   putGroup: (groupId: string | null, name: string, fixtureIds: string[]) => void;
   deleteGroup: (groupId: string) => void;
   captureScene: (name: string, fadeMs: number) => void;
+  captureSceneSnapshot: (name: string, fadeMs: number) => void;
+  recaptureScene: (sceneId: string) => void;
   updateScene: (sceneId: string, name: string, fadeMs: number) => void;
   deleteScene: (sceneId: string) => void;
   addCue: (sceneId: string) => void;
@@ -143,7 +145,8 @@ interface ShowUiState {
   deleteLiveControl: (controlId: string) => void;
   triggerLiveControl: (controlId: string) => void;
   releaseLiveControl: (controlId: string) => void;
-  updateLiveControlLayout: (controlId: string, update: Pick<LiveControlSummary, "gridX" | "gridY" | "width" | "height" | "color" | "behavior">) => Promise<boolean>;
+  setLiveControlLevel: (controlId: string, level: number) => void;
+  updateLiveControlLayout: (controlId: string, update: Pick<LiveControlSummary, "gridX" | "gridY" | "width" | "height" | "color" | "behavior" | "controlType" | "fadeInMs" | "fadeOutMs" | "dimmer" | "beatMultiplier">) => Promise<boolean>;
   setLivePage: (page: number) => void;
   hydrateEngine: (bootstrap: EngineBootstrap) => void;
   applyEngineView: (view: EngineView) => void;
@@ -179,6 +182,11 @@ const initialLiveControls: LiveControlSummary[] = initialScenes.map((scene, inde
   height: 1,
   color: scene.color,
   behavior: index === 3 ? "flash" : "radio",
+  controlType: "button",
+  fadeInMs: scene.fadeMs,
+  fadeOutMs: scene.fadeMs,
+  dimmer: 1,
+  beatMultiplier: 1,
 }));
 
 const initialFixtureDefinitions: FixtureDefinitionSummary[] = [
@@ -761,6 +769,24 @@ export const useShowStore = create<ShowUiState>((set, get) => {
         data: { name, fadeMs, fixtureIds: get().selectedFixtureIds },
       });
     },
+    captureSceneSnapshot: (name, fadeMs) => {
+      void mutateProject({
+        type: "captureScene",
+        data: { name, fadeMs, fixtureIds: get().fixtures.map((fixtureItem) => fixtureItem.id) },
+      });
+    },
+    recaptureScene: (sceneId) => {
+      const selectedFixtureIds = get().selectedFixtureIds;
+      void mutateProject({
+        type: "recaptureScene",
+        data: {
+          sceneId,
+          fixtureIds: selectedFixtureIds.length > 0
+            ? selectedFixtureIds
+            : get().fixtures.map((fixtureItem) => fixtureItem.id),
+        },
+      });
+    },
     updateScene: (sceneId, name, fadeMs) => {
       void mutateProject({ type: "updateScene", data: { sceneId, name, fadeMs } });
     },
@@ -868,6 +894,26 @@ export const useShowStore = create<ShowUiState>((set, get) => {
       const control = get().liveControls.find((entry) => entry.id === controlId);
       if (control?.behavior === "flash") {
         setLiveTargetActive(control, false, get, set, dispatch);
+      }
+    },
+    setLiveControlLevel: (controlId, value) => {
+      const level = clamp(value);
+      const state = get();
+      const control = state.liveControls.find((entry) => entry.id === controlId);
+      if (!control) return;
+      if (control.sceneId) {
+        const active = state.scenes.some((scene) => scene.id === control.sceneId && scene.active);
+        if (level <= 0.001) {
+          if (active) setLiveTargetActive(control, false, get, set, dispatch);
+          return;
+        }
+        if (!active) setLiveTargetActive(control, true, get, set, dispatch);
+        dispatch({ type: "setSceneLevel", data: { sceneId: control.sceneId, level } }, `scene-level:${control.sceneId}`);
+        return;
+      }
+      const active = state.effects.some((effect) => effect.id === control.effectId && effect.active);
+      if ((level > 0.001) !== active) {
+        setLiveTargetActive(control, level > 0.001, get, set, dispatch);
       }
     },
     updateLiveControlLayout: (controlId, update) => mutateProject({
@@ -1152,8 +1198,8 @@ function setLiveTargetActive(
       ),
     }));
     dispatch(enabled
-      ? { type: "activateScene", data: { sceneId: scene.id, fadeMs: null } }
-      : { type: "releaseScene", data: { sceneId: scene.id, fadeMs: null } });
+      ? { type: "activateScene", data: { sceneId: scene.id, fadeMs: control.fadeInMs } }
+      : { type: "releaseScene", data: { sceneId: scene.id, fadeMs: control.fadeOutMs } });
     return;
   }
 

@@ -77,6 +77,10 @@ pub enum Command {
         scene_id: SceneId,
         fade_ms: Option<u64>,
     },
+    SetSceneLevel {
+        scene_id: SceneId,
+        level: NormalizedValue,
+    },
     PutCueList {
         cue_list: CueListData,
     },
@@ -215,6 +219,10 @@ pub enum DomainEvent {
     },
     SceneReleased {
         scene_id: SceneId,
+    },
+    SceneLevelChanged {
+        scene_id: SceneId,
+        level: NormalizedValue,
     },
     CueListStored {
         cue_list_id: CueListId,
