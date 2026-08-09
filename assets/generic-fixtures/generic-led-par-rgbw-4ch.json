@@ -1,8 +1,8 @@
 {
-  "id": "generic.led-par-rgb-4ch",
+  "id": "generic.led-par-rgbw-4ch",
   "revision": "1",
   "manufacturer": "LightHouse",
-  "model": "Generic LED PAR RGB (4ch)",
+  "model": "Generic LED PAR RGBW (4ch)",
   "metadata": {
     "fixtureType": "par",
     "icon": "par",
@@ -13,8 +13,8 @@
   },
   "modes": [
     {
-      "id": "rgb-unused",
-      "name": "RGB + Unused",
+      "id": "rgbw",
+      "name": "RGBW",
       "footprint": 4,
       "parameters": [
         {
@@ -39,6 +39,14 @@
           "capability": "color",
           "defaultValue": 0.0,
           "binding": { "resolution": "eightBit", "offset": 2 },
+          "invert": false
+        },
+        {
+          "id": "color.white",
+          "name": "White",
+          "capability": "color",
+          "defaultValue": 0.0,
+          "binding": { "resolution": "eightBit", "offset": 3 },
           "invert": false
         }
       ],
@@ -75,11 +83,11 @@
         },
         {
           "offset": 3,
-          "name": "Unused",
-          "property": "unused",
-          "parameterId": null,
-          "capability": { "custom": "Unused" },
-          "ranges": [{ "start": 0, "end": 255, "label": "No Function", "semanticMin": 0.0, "semanticMax": 255.0, "unit": "raw", "hazardous": false }],
+          "name": "White",
+          "property": "color.white",
+          "parameterId": "color.white",
+          "capability": "color",
+          "ranges": [{ "start": 0, "end": 255, "label": "White", "semanticMin": 0.0, "semanticMax": 100.0, "unit": "%", "hazardous": false }],
           "pixel": null,
           "hazardous": false
         }

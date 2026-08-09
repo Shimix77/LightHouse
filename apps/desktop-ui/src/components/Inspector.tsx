@@ -25,11 +25,13 @@ export function Inspector() {
         .find((definition) => definition.id === primary.definitionId)
         ?.modes.find((mode) => mode.id === primary.modeId)
     : undefined;
+  const whiteParameter = selectedMode?.parameters.find((parameter) => parameter.id === "color.white");
   const additionalParameters = selectedMode?.parameters.filter((parameter) => ![
     "intensity",
     "color.red",
     "color.green",
     "color.blue",
+    "color.white",
     "position.pan",
     "position.tilt",
     "beam.zoom",
@@ -128,6 +130,17 @@ export function Inspector() {
             />
           ))}
         </div>
+        {whiteParameter && (
+          <div className="parameter-fader color-emitter-fader">
+            <small>CH {whiteParameter.coarseChannel} · WHITE EMITTER</small>
+            <Fader
+              label="White"
+              value={primary.parameters[whiteParameter.id] ?? whiteParameter.defaultValue}
+              onStart={captureHistory}
+              onChange={(value) => setSelectedParameter(whiteParameter.id, value)}
+            />
+          </div>
+        )}
       </InspectorSection>
 
       <InspectorSection title="Position" open>

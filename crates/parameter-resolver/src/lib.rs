@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn rgb_only_fixture_gets_a_virtual_dimmer_and_safe_blackout() {
+    fn rgbw_fixture_gets_a_virtual_dimmer_and_safe_blackout() {
         let fixture_id = FixtureId::new(1);
         let mode = FixtureMode {
             id: "rgb".into(),
@@ -336,6 +336,12 @@ mod tests {
                     ParameterCapability::Color,
                     false,
                 ),
+                parameter(
+                    "color.white",
+                    DmxBinding::EightBit { offset: 3 },
+                    ParameterCapability::Color,
+                    false,
+                ),
             ],
             channels: Vec::new(),
         };
@@ -351,6 +357,7 @@ mod tests {
                 NormalizedValue::new(0.5).unwrap(),
             ),
             (ParameterId::from("color.blue"), NormalizedValue::ZERO),
+            (ParameterId::from("color.white"), NormalizedValue::FULL),
         ]);
         let frames = resolve(&[FixtureRenderState {
             fixture_id,
@@ -363,10 +370,11 @@ mod tests {
         assert_eq!(frame.slot(1), Some(128));
         assert_eq!(frame.slot(2), Some(64));
         assert_eq!(frame.slot(3), Some(0));
-        assert_eq!(frame.slot(4), Some(0));
+        assert_eq!(frame.slot(4), Some(128));
 
         let blackout = frames.blackout_copy();
         assert_eq!(blackout.frame(UniverseId::new(1)).unwrap().slot(1), Some(0));
         assert_eq!(blackout.frame(UniverseId::new(1)).unwrap().slot(2), Some(0));
+        assert_eq!(blackout.frame(UniverseId::new(1)).unwrap().slot(4), Some(0));
     }
 }

@@ -12,7 +12,7 @@ pub use ofl::import_ofl_fixture;
 
 const GENERIC_FIXTURE_JSON: &[&str] = &[
     include_str!("../../../assets/generic-fixtures/generic-dimmer.json"),
-    include_str!("../../../assets/generic-fixtures/generic-led-par-rgb-4ch.json"),
+    include_str!("../../../assets/generic-fixtures/generic-led-par-rgbw-4ch.json"),
     include_str!("../../../assets/generic-fixtures/generic-rgbw-par.json"),
     include_str!("../../../assets/generic-fixtures/generic-moving-head-16bit.json"),
 ];
